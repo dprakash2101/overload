@@ -51,6 +51,7 @@ overload = "overload.cli:main"
 Homepage = "https://github.com/dprakash2101/overload"
 Repository = "https://github.com/dprakash2101/overload"
 Issues = "https://github.com/dprakash2101/overload/issues"
+Documentation = "https://dprakash2101.github.io/overload/"
 Changelog = "https://github.com/dprakash2101/overload/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
