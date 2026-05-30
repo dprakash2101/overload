@@ -1,0 +1,28 @@
+{
+  "info": {
+    "name": "TTD Latest Updates API",
+    "description": "API collection for TTD Latest Updates service",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Get Latest Updates",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "https://ttd-latest-updates-latest.onrender.com/latest-updates",
+          "protocol": "https",
+          "host": ["ttd-latest-updates-latest", "onrender", "com"],
+          "path": ["latest-updates"]
+        },
+        "header": [
+          {
+            "key": "accept",
+            "value": "application/json"
+          }
+        ]
+      }
+    }
+  ],
+  "variable": []
+}
