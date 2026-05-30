@@ -7,7 +7,7 @@ Free, open-source load testing tool that reads Postman collections. Run tests fr
 ## Install
 
 ```bash
-pip install overload
+pip install overload-cli
 ```
 
 Or in dev mode from source:
@@ -177,7 +177,7 @@ overload run --collection api.json --config overload.config.yaml --junit results
 ```yaml
 - name: Run load test
   run: |
-    pip install overload
+    pip install overload-cli
     overload run --collection tests/api.json \
       --config overload.config.yaml \
       --junit results.xml

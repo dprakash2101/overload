@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "overload"
+name = "overload-cli"
 version = "0.1.0"
 description = "Free load testing tool that reads Postman collections — browser UI + CLI"
 readme = "README.md"
