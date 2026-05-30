@@ -25,10 +25,10 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -55,10 +55,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -87,7 +87,7 @@ jobs:
         run: twine check dist/*
 
       - name: Upload dist as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist-${{ inputs.version }}
           path: dist/
@@ -103,7 +103,7 @@ jobs:
       tag_name: ${{ steps.tag.outputs.tag }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -136,7 +136,7 @@ jobs:
         run: echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
 
       - name: Download dist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist-${{ inputs.version }}
           path: dist/
@@ -159,7 +159,7 @@ jobs:
           echo "$BODY" > release_notes.md
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ inputs.version }}
           name: "Overload v${{ inputs.version }}"
@@ -183,7 +183,7 @@ jobs:
 
     steps:
       - name: Download dist artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist-${{ inputs.version }}
           path: dist/

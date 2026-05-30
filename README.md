@@ -6,6 +6,14 @@ Free, open-source load testing tool that reads Postman collections. Run tests fr
 
 ---
 
+## Why "Overload"?
+
+Named Overload because that's exactly what it does to your server.
+
+No metaphor. No brand committee. Just requests — a lot of them — all at once, until something interesting happens.
+
+---
+
 ## Install
 
 ```bash
