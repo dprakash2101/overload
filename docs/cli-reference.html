@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="CLI Reference for Overload — Complete command line guide.">
+  <title>CLI Reference — Overload Documentation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ========== Top Navigation ========== -->
+  <nav class="top-nav">
+    <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Toggle menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    </button>
+    <a href="index.html" class="top-nav__logo">
+      <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14" stroke="url(#grd)" stroke-width="2.5"/><path d="M10 20L16 8l6 12" stroke="url(#grd)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="grd" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#818cf8"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs></svg>
+      Overload
+      <span class="top-nav__badge">v0.1.0</span>
+    </a>
+    <div class="top-nav__links">
+      <a href="index.html" class="top-nav__link">Home</a>
+      <a href="getting-started.html" class="top-nav__link">Getting Started</a>
+      <a href="cli-reference.html" class="top-nav__link active">CLI</a>
+      <a href="test-patterns.html" class="top-nav__link">Patterns</a>
+      <a href="ci-cd.html" class="top-nav__link">CI/CD</a>
+      <a href="https://github.com/dprakash2101/overload" class="top-nav__github" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <!-- ========== Sidebar ========== -->
+    <aside class="sidebar">
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Overview</div>
+        <a href="index.html" class="sidebar__link">Introduction</a>
+        <a href="getting-started.html" class="sidebar__link">Getting Started</a>
+        <a href="getting-started.html#install" class="sidebar__link sidebar__sub">Installation</a>
+        <a href="getting-started.html#first-test" class="sidebar__link sidebar__sub">First Test</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Usage</div>
+        <a href="cli-reference.html" class="sidebar__link active">CLI Reference</a>
+        <a href="browser-ui.html" class="sidebar__link">Browser UI</a>
+        <a href="test-patterns.html" class="sidebar__link">Test Patterns</a>
+        <a href="configuration.html" class="sidebar__link">Configuration</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Features</div>
+        <a href="collections.html" class="sidebar__link">Collections &amp; Variables</a>
+        <a href="authentication.html" class="sidebar__link">Authentication</a>
+        <a href="assertions.html" class="sidebar__link">Assertions</a>
+        <a href="reports.html" class="sidebar__link">Reports</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Integration</div>
+        <a href="ci-cd.html" class="sidebar__link">CI/CD Integration</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Development</div>
+        <a href="architecture.html" class="sidebar__link">Architecture</a>
+        <a href="contributing.html" class="sidebar__link">Contributing</a>
+        <a href="changelog.html" class="sidebar__link">Changelog</a>
+      </div>
+    </aside>
+
+    <!-- ========== Main Content ========== -->
+    <main class="content">
+      <h1>CLI Reference</h1>
+      <p class="subtitle">Complete command line guide for Overload.</p>
+
+      <h2 id="global-options">Global Options</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Flag</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>--version</code></td>
+              <td>Prints the Overload version.</td>
+            </tr>
+            <tr>
+              <td><code>--debug</code></td>
+              <td>Enables DEBUG logging.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>You can also enable debug logging using the environment variable: <code>OVERLOAD_DEBUG=1 overload</code></p>
+
+      <h2 id="overload-ui"><code>overload</code> / <code>overload ui</code></h2>
+      <p>Starts the browser UI. This is the default command if you run <code>overload</code> without arguments.</p>
+      
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Flag</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>--port</code></td>
+              <td>Port number (default: 3000)</td>
+            </tr>
+            <tr>
+              <td><code>--host</code></td>
+              <td>Host to bind to (default: 127.0.0.1)</td>
+            </tr>
+            <tr>
+              <td><code>--no-browser</code></td>
+              <td>Don't open the browser automatically</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <pre data-lang="bash"><code>overload ui --port 8080
+overload ui --host 0.0.0.0 --no-browser</code></pre>
+
+      <h2 id="overload-run"><code>overload run</code></h2>
+      <p>Runs a load test from the CLI (headless mode). This is ideal for CI/CD environments.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Flag</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>--collection</code></td><td><strong>Required.</strong> Path to Postman collection JSON.</td></tr>
+            <tr><td><code>--environment</code></td><td>Path to Postman environment JSON.</td></tr>
+            <tr><td><code>--pattern</code></td><td>Test pattern: load, stress, spike, soak, ramp, burst, breakpoint, custom, ratelimit (default: burst).</td></tr>
+            <tr><td><code>--requests</code></td><td>Total requests for burst/ratelimit (default: 200).</td></tr>
+            <tr><td><code>--concurrency</code></td><td>Max concurrent connections (default: 20).</td></tr>
+            <tr><td><code>--rps</code></td><td>Target requests per second (default: 50).</td></tr>
+            <tr><td><code>--duration</code></td><td>Test duration in seconds (default: 300).</td></tr>
+            <tr><td><code>--var KEY=VALUE</code></td><td>Variable override. Repeatable.</td></tr>
+            <tr><td><code>--save-responses</code></td><td>Save response bodies in the report.</td></tr>
+            <tr><td><code>--output</code></td><td>Directory to write reports to (default: reports/).</td></tr>
+            <tr><td><code>--format</code></td><td>Report format: html, json, csv (default: html).</td></tr>
+            <tr><td><code>--stages</code></td><td>Custom stages JSON array.</td></tr>
+            <tr><td><code>--timeout</code></td><td>Per-request timeout in seconds (default: 30.0).</td></tr>
+            <tr><td><code>--no-verify-ssl</code></td><td>Skip SSL certificate verification.</td></tr>
+            <tr><td><code>--assert EXPR</code></td><td>Assertion threshold, e.g. p95_latency_ms&lt;500. Repeatable.</td></tr>
+            <tr><td><code>--junit PATH</code></td><td>Write JUnit XML report to this path.</td></tr>
+            <tr><td><code>--open-report</code></td><td>Open HTML report in browser after the run.</td></tr>
+            <tr><td><code>--config PATH</code></td><td>Path to overload.config.yaml.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Examples:</h3>
+      <pre data-lang="bash"><code># Burst test
+overload run --collection api.json --pattern burst --requests 500
+
+# Load test with assertions and JUnit output
+overload run --collection api.json --pattern load --rps 100 --duration 60 \
+  --assert "p95_latency_ms<300" --assert "error_rate_pct==0" \
+  --junit results.xml
+
+# Custom variables
+overload run --collection api.json --var base_url=https://prod.api.com --var token=abc</code></pre>
+
+      <h2 id="overload-sequential"><code>overload sequential</code></h2>
+      <p>Runs collection requests sequentially, one at a time, in order. Useful for functional testing workflows.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Flag</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>--collection</code></td><td><strong>Required.</strong> Path to Postman collection JSON.</td></tr>
+            <tr><td><code>--environment</code></td><td>Path to Postman environment JSON.</td></tr>
+            <tr><td><code>--iterations</code></td><td>Number of times to iterate through the collection (default: 1).</td></tr>
+            <tr><td><code>--delay</code></td><td>Delay between requests in milliseconds (default: 0).</td></tr>
+            <tr><td><code>--var KEY=VALUE</code></td><td>Variable override. Repeatable.</td></tr>
+            <tr><td><code>--output</code></td><td>Output directory for reports (default: .).</td></tr>
+            <tr><td><code>--timeout</code></td><td>Request timeout in seconds (default: 30.0).</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <pre data-lang="bash"><code>overload sequential --collection api.json --iterations 3 --delay 1000</code></pre>
+
+      <h2 id="exit-codes">Exit Codes</h2>
+      <ul>
+        <li><code>0</code>: Success (all assertions passed, or no assertions configured)</li>
+        <li><code>1</code>: Assertion failure (one or more assertions failed)</li>
+        <li><code>2</code>: Invalid configuration or assertion expression</li>
+      </ul>
+
+      <!-- Footer -->
+      <footer class="footer">
+        <p>Overload v0.1.0 · MIT License · Built by <a href="https://github.com/dprakash2101" target="_blank" rel="noopener">Devi Prakash</a></p>
+        <p style="margin-top:8px">
+          <a href="https://github.com/dprakash2101/overload" target="_blank" rel="noopener">GitHub</a> ·
+          <a href="https://pypi.org/project/overload-cli/" target="_blank" rel="noopener">PyPI</a> ·
+          <a href="changelog.html">Changelog</a>
+        </p>
+      </footer>
+    </main>
+  </div>
+  <script>
+    document.querySelectorAll('.sidebar__link').forEach(link => {
+      link.addEventListener('click', () => {
+        document.querySelector('.sidebar').classList.remove('open');
+      });
+    });
+  </script>
+</body>
+</html>

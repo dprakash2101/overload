@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Test Patterns for Overload — Load, Stress, Spike, Soak, Ramp, Burst, Breakpoint, Custom, Rate Limit, and Sequential.">
+  <title>Test Patterns — Overload Documentation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ========== Top Navigation ========== -->
+  <nav class="top-nav">
+    <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Toggle menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    </button>
+    <a href="index.html" class="top-nav__logo">
+      <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14" stroke="url(#grd)" stroke-width="2.5"/><path d="M10 20L16 8l6 12" stroke="url(#grd)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="grd" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#818cf8"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs></svg>
+      Overload
+      <span class="top-nav__badge">v0.1.0</span>
+    </a>
+    <div class="top-nav__links">
+      <a href="index.html" class="top-nav__link">Home</a>
+      <a href="getting-started.html" class="top-nav__link">Getting Started</a>
+      <a href="cli-reference.html" class="top-nav__link">CLI</a>
+      <a href="test-patterns.html" class="top-nav__link active">Patterns</a>
+      <a href="ci-cd.html" class="top-nav__link">CI/CD</a>
+      <a href="https://github.com/dprakash2101/overload" class="top-nav__github" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <!-- ========== Sidebar ========== -->
+    <aside class="sidebar">
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Overview</div>
+        <a href="index.html" class="sidebar__link">Introduction</a>
+        <a href="getting-started.html" class="sidebar__link">Getting Started</a>
+        <a href="getting-started.html#install" class="sidebar__link sidebar__sub">Installation</a>
+        <a href="getting-started.html#first-test" class="sidebar__link sidebar__sub">First Test</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Usage</div>
+        <a href="cli-reference.html" class="sidebar__link">CLI Reference</a>
+        <a href="browser-ui.html" class="sidebar__link">Browser UI</a>
+        <a href="test-patterns.html" class="sidebar__link active">Test Patterns</a>
+        <a href="configuration.html" class="sidebar__link">Configuration</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Features</div>
+        <a href="collections.html" class="sidebar__link">Collections &amp; Variables</a>
+        <a href="authentication.html" class="sidebar__link">Authentication</a>
+        <a href="assertions.html" class="sidebar__link">Assertions</a>
+        <a href="reports.html" class="sidebar__link">Reports</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Integration</div>
+        <a href="ci-cd.html" class="sidebar__link">CI/CD Integration</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Development</div>
+        <a href="architecture.html" class="sidebar__link">Architecture</a>
+        <a href="contributing.html" class="sidebar__link">Contributing</a>
+        <a href="changelog.html" class="sidebar__link">Changelog</a>
+      </div>
+    </aside>
+
+    <!-- ========== Main Content ========== -->
+    <main class="content">
+      <h1>Test Patterns</h1>
+      <p class="subtitle">Overload provides 10 distinct test patterns, each designed to simulate a specific real-world traffic scenario.</p>
+
+      <div class="toc">
+        <div class="toc__title">In this section</div>
+        <ul>
+          <li><a href="#burst">1. Burst</a></li>
+          <li><a href="#load">2. Load</a></li>
+          <li><a href="#stress">3. Stress</a></li>
+          <li><a href="#spike">4. Spike</a></li>
+          <li><a href="#soak">5. Soak</a></li>
+          <li><a href="#ramp">6. Ramp</a></li>
+          <li><a href="#breakpoint">7. Breakpoint</a></li>
+          <li><a href="#custom">8. Custom</a></li>
+          <li><a href="#rate-limit">9. Rate Limit</a></li>
+          <li><a href="#sequential">10. Sequential</a></li>
+        </ul>
+      </div>
+
+      <!-- BURST -->
+      <h2 id="burst">1. Burst</h2>
+      <p><strong>What it does:</strong> Fires a specific number of total requests as fast as possible, constrained only by the concurrency limit.</p>
+      <p><strong>When to use:</strong> Max throughput testing. Useful for seeing how fast your API can process a set batch of requests, or for simple smoke tests.</p>
+      <p><strong>How it works:</strong> Creates <code>N</code> tasks immediately and runs them through an <code>asyncio.Semaphore</code> to limit simultaneous connections to <code>concurrency</code>.</p>
+      
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Config Field</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>total_requests</code></td><td>200</td><td>The total number of requests to execute.</td></tr>
+            <tr><td><code>concurrency</code></td><td>20</td><td>Maximum simultaneous HTTP connections.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <pre data-lang="bash"><code>overload run --collection api.json --pattern burst --requests 500 --concurrency 50</code></pre>
+
+      <!-- LOAD -->
+      <h2 id="load">2. Load</h2>
+      <p><strong>What it does:</strong> Simulates sustained traffic over a period of time in a 3-phase shape: Ramp Up → Hold → Ramp Down.</p>
+      <p><strong>When to use:</strong> Standard performance testing. Verifies that the system can handle expected peak traffic volumes over an extended period.</p>
+      <p><strong>How it works:</strong> Controls the exact Requests Per Second (RPS) issued using interval-based scheduling. During ramp phases, the RPS increases/decreases step-by-step each second.</p>
+      
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Config Field</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>target_rps</code></td><td>50</td><td>The sustained RPS during the hold phase.</td></tr>
+            <tr><td><code>ramp_up_seconds</code></td><td>30</td><td>Time taken to linearly reach target RPS.</td></tr>
+            <tr><td><code>hold_duration_seconds</code></td><td>300</td><td>Time to hold traffic at target RPS.</td></tr>
+            <tr><td><code>ramp_down_seconds</code></td><td>10</td><td>Time taken to linearly decrease to 0.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <pre data-lang="bash"><code>overload run --collection api.json --pattern load --rps 100 --duration 600</code></pre>
+
+      <!-- STRESS -->
+      <h2 id="stress">3. Stress</h2>
+      <p><strong>What it does:</strong> Gradually steps up the RPS until the system starts failing (exceeds an error threshold) or reaches a defined maximum.</p>
+      <p><strong>When to use:</strong> Finding the absolute limits of your infrastructure. Identifies the point at which your application degrades or crashes.</p>
+      <p><strong>How it works:</strong> Runs at <code>start_rps</code> for <code>step_duration_seconds</code>, then adds <code>step_rps</code>. At each step, it calculates the error rate (4xx/5xx responses). If the rate exceeds <code>failure_threshold_pct</code>, the test stops and reports the breaking point.</p>
+      
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Config Field</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>start_rps</code></td><td>10</td><td>Initial RPS.</td></tr>
+            <tr><td><code>step_rps</code></td><td>20</td><td>Amount to increase RPS at each step.</td></tr>
+            <tr><td><code>step_duration_seconds</code></td><td>30</td><td>How long to hold each step.</td></tr>
+            <tr><td><code>max_rps</code></td><td>500</td><td>Upper limit; test stops if reached.</td></tr>
+            <tr><td><code>failure_threshold_pct</code></td><td>80.0</td><td>Error rate % that triggers failure.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <pre data-lang="bash"><code>overload run --collection api.json --pattern stress</code></pre>
+
+      <!-- SPIKE -->
+      <h2 id="spike">4. Spike</h2>
+      <p><strong>What it does:</strong> Runs steady baseline traffic, followed by a sudden, massive surge in traffic, returning to baseline afterward.</p>
+      <p><strong>When to use:</strong> Elasticity testing. Verifies if autoscaling triggers correctly and if the system recovers gracefully after a traffic flood.</p>
+      <p><strong>How it works:</strong> 3 explicit phases with instantaneous RPS changes between them (no gradual ramping).</p>
+      
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Config Field</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>baseline_rps</code></td><td>20</td><td>Normal traffic load.</td></tr>
+            <tr><td><code>spike_rps</code></td><td>200</td><td>Surge traffic load.</td></tr>
+            <tr><td><code>baseline_duration_seconds</code></td><td>60</td><td>Duration of initial normal traffic.</td></tr>
+            <tr><td><code>spike_duration_seconds</code></td><td>30</td><td>Duration of the surge.</td></tr>
+            <tr><td><code>recovery_duration_seconds</code></td><td>60</td><td>Duration of final normal traffic.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <pre data-lang="bash"><code>overload run --collection api.json --pattern spike</code></pre>
+
+      <!-- SOAK -->
+      <h2 id="soak">5. Soak</h2>
+      <p><strong>What it does:</strong> Maintains a steady, moderate RPS for a very long duration (typically hours).</p>
+      <p><strong>When to use:</strong> Detecting memory leaks, connection pool exhaustion, unclosed file descriptors, and long-term performance drift.</p>
+      <p><strong>How it works:</strong> A simple, flat RPS profile that runs until the duration expires.</p>
+      
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Config Field</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>soak_rps</code></td><td>30</td><td>Sustained RPS level.</td></tr>
+            <tr><td><code>soak_duration_seconds</code></td><td>1800</td><td>Total test duration (default: 30 mins).</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <pre data-lang="bash"><code>overload run --collection api.json --pattern soak --duration 3600</code></pre>
+
+      <!-- RAMP -->
+      <h2 id="ramp">6. Ramp</h2>
+      <p><strong>What it does:</strong> Linearly increases traffic from a starting RPS to an ending RPS over a series of steps.</p>
+      <p><strong>When to use:</strong> Capacity planning. Useful for observing system metrics as load smoothly increases, without the abruptness of a load or spike test.</p>
+      <p><strong>How it works:</strong> Calculates steps between <code>ramp_start_rps</code> and <code>ramp_end_rps</code> using <code>step_rps</code>.</p>
+      
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Config Field</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>ramp_start_rps</code></td><td>10</td><td>Initial RPS.</td></tr>
+            <tr><td><code>ramp_end_rps</code></td><td>200</td><td>Final target RPS.</td></tr>
+            <tr><td><code>step_rps</code></td><td>20</td><td>Increase per step.</td></tr>
+            <tr><td><code>step_duration_seconds</code></td><td>30</td><td>Duration of each step.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <pre data-lang="bash"><code>overload run --collection api.json --pattern ramp</code></pre>
+
+      <!-- BREAKPOINT -->
+      <h2 id="breakpoint">7. Breakpoint</h2>
+      <p><strong>What it does:</strong> Automatically finds the exact RPS where your API degrades by performing a binary search between a low and high RPS.</p>
+      <p><strong>When to use:</strong> Precisely identifying your system's SLA limits (e.g., "At what exact RPS does P95 latency exceed 2 seconds?").</p>
+      <p><strong>How it works:</strong> Probes the midpoint RPS for 5 seconds. If P95 latency or error rate exceeds thresholds, the high bound becomes the midpoint. If it succeeds, the low bound becomes the midpoint. Repeats until the bounds are within <code>precision_rps</code> of each other.</p>
+      
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Config Field</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>precision_rps</code></td><td>5</td><td>Search granularity (stop condition).</td></tr>
+            <tr><td><code>latency_threshold_ms</code></td><td>2000.0</td><td>Max acceptable P95 latency.</td></tr>
+            <tr><td><code>error_threshold_pct</code></td><td>10.0</td><td>Max acceptable error rate %.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <pre data-lang="bash"><code>overload run --collection api.json --pattern breakpoint</code></pre>
+
+      <!-- CUSTOM -->
+      <h2 id="custom">8. Custom</h2>
+      <p><strong>What it does:</strong> Executes a user-defined sequence of stages, each with a specific duration and RPS.</p>
+      <p><strong>When to use:</strong> Simulating highly specific, complex real-world traffic patterns that don't fit standard models.</p>
+      <p><strong>How it works:</strong> Iterates through the provided JSON array of stages sequentially.</p>
+      
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Config Field</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>stages</code></td><td><code>[]</code></td><td>JSON array of objects: <code>[{"duration":60,"rps":50}, ...]</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <pre data-lang="bash"><code>overload run --collection api.json --pattern custom --stages '[{"duration":60,"rps":50},{"duration":30,"rps":200},{"duration":60,"rps":10}]'</code></pre>
+
+      <!-- RATE LIMIT -->
+      <h2 id="rate-limit">9. Rate Limit</h2>
+      <p><strong>What it does:</strong> Specifically designed to verify that an API's rate limiting (429 Too Many Requests) mechanism works correctly.</p>
+      <p><strong>When to use:</strong> Validating API Gateway configurations, WAF rules, or application-level rate limiters.</p>
+      <p><strong>How it works:</strong> 
+        Phase 1 (Burst): Fires <code>rate_limit_requests</code> instantly to trigger burst limits.<br>
+        Phase 2 (Ramp): Steps up from 10 RPS to <code>cap * 2</code>. At each step, it checks if ≥50% of responses are 429s.
+      </p>
+      
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Config Field</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>rate_limit_cap</code></td><td>60</td><td>The expected RPS rate limit of the API.</td></tr>
+            <tr><td><code>rate_limit_requests</code></td><td>120</td><td>Requests to fire during the initial burst.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <pre data-lang="bash"><code>overload run --collection api.json --pattern ratelimit</code></pre>
+
+      <!-- SEQUENTIAL -->
+      <h2 id="sequential">10. Sequential</h2>
+      <p><strong>What it does:</strong> Executes requests in the exact order they appear in the Postman collection, waiting for each to finish before starting the next.</p>
+      <p><strong>When to use:</strong> Functional flow testing. e.g., Login (save token to variable) → Create Item → Update Item → Delete Item.</p>
+      <p><strong>How it works:</strong> Bypasses the async load engine entirely. A simple loop over requests for <code>iterations</code> times, applying <code>delay_ms</code> between requests.</p>
+      
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Config Field</th><th>Default</th><th>Description</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>iterations</code></td><td>1</td><td>Number of times to run the full collection sequence.</td></tr>
+            <tr><td><code>delay_ms</code></td><td>0</td><td>Milliseconds to wait between requests.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <pre data-lang="bash"><code>overload sequential --collection api.json --iterations 5 --delay 500</code></pre>
+
+      <!-- Footer -->
+      <footer class="footer">
+        <p>Overload v0.1.0 · MIT License · Built by <a href="https://github.com/dprakash2101" target="_blank" rel="noopener">Devi Prakash</a></p>
+        <p style="margin-top:8px">
+          <a href="https://github.com/dprakash2101/overload" target="_blank" rel="noopener">GitHub</a> ·
+          <a href="https://pypi.org/project/overload-cli/" target="_blank" rel="noopener">PyPI</a> ·
+          <a href="changelog.html">Changelog</a>
+        </p>
+      </footer>
+    </main>
+  </div>
+  <script>
+    document.querySelectorAll('.sidebar__link').forEach(link => {
+      link.addEventListener('click', () => {
+        document.querySelector('.sidebar').classList.remove('open');
+      });
+    });
+  </script>
+</body>
+</html>
