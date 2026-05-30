@@ -2,6 +2,8 @@
 
 Free, open-source load testing tool that reads Postman collections. Run tests from a browser dashboard or the terminal CLI.
 
+**📚 [Read the Full Documentation](https://dprakash2101.github.io/overload/)**
+
 ---
 
 ## Install
