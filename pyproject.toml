@@ -63,6 +63,9 @@ exclude = [
     ".github/",
     "CLAUDE.md",
     "PLAN.md",
+    ".antigravitycli/",
+    ".claude/",
+    ".gemini/",
 ]
 
 [tool.pytest.ini_options]

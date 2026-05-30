@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Contributing to Overload — Guide for developers.">
+  <title>Contributing — Overload Documentation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ========== Top Navigation ========== -->
+  <nav class="top-nav">
+    <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Toggle menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    </button>
+    <a href="index.html" class="top-nav__logo">
+      <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14" stroke="url(#grd)" stroke-width="2.5"/><path d="M10 20L16 8l6 12" stroke="url(#grd)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="grd" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#818cf8"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs></svg>
+      Overload
+      <span class="top-nav__badge">v0.1.0</span>
+    </a>
+    <div class="top-nav__links">
+      <a href="index.html" class="top-nav__link">Home</a>
+      <a href="getting-started.html" class="top-nav__link">Getting Started</a>
+      <a href="cli-reference.html" class="top-nav__link">CLI</a>
+      <a href="test-patterns.html" class="top-nav__link">Patterns</a>
+      <a href="ci-cd.html" class="top-nav__link">CI/CD</a>
+      <a href="https://github.com/dprakash2101/overload" class="top-nav__github" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <!-- ========== Sidebar ========== -->
+    <aside class="sidebar">
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Overview</div>
+        <a href="index.html" class="sidebar__link">Introduction</a>
+        <a href="getting-started.html" class="sidebar__link">Getting Started</a>
+        <a href="getting-started.html#install" class="sidebar__link sidebar__sub">Installation</a>
+        <a href="getting-started.html#first-test" class="sidebar__link sidebar__sub">First Test</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Usage</div>
+        <a href="cli-reference.html" class="sidebar__link">CLI Reference</a>
+        <a href="browser-ui.html" class="sidebar__link">Browser UI</a>
+        <a href="test-patterns.html" class="sidebar__link">Test Patterns</a>
+        <a href="configuration.html" class="sidebar__link">Configuration</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Features</div>
+        <a href="collections.html" class="sidebar__link">Collections &amp; Variables</a>
+        <a href="authentication.html" class="sidebar__link">Authentication</a>
+        <a href="assertions.html" class="sidebar__link">Assertions</a>
+        <a href="reports.html" class="sidebar__link">Reports</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Integration</div>
+        <a href="ci-cd.html" class="sidebar__link">CI/CD Integration</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Development</div>
+        <a href="architecture.html" class="sidebar__link">Architecture</a>
+        <a href="contributing.html" class="sidebar__link active">Contributing</a>
+        <a href="changelog.html" class="sidebar__link">Changelog</a>
+      </div>
+    </aside>
+
+    <!-- ========== Main Content ========== -->
+    <main class="content">
+      <h1>Contributing</h1>
+      <p class="subtitle">Thank you for your interest in improving Overload!</p>
+
+      <h2 id="setup">Development Setup</h2>
+      <p>Clone the repository and install it in editable mode with development dependencies:</p>
+      
+      <pre data-lang="bash"><code>git clone https://github.com/dprakash2101/overload
+cd overload
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[dev]"</code></pre>
+
+      <h2 id="testing">Running Tests</h2>
+      <p>The project uses <code>pytest</code> for unit testing. Before submitting a Pull Request, ensure the entire test suite passes.</p>
+      
+      <pre data-lang="bash"><code>pytest tests/</code></pre>
+      <p>To stop on the first failure:</p>
+      <pre data-lang="bash"><code>pytest tests/ -x</code></pre>
+
+      <h2 id="principles">Development Principles</h2>
+      <ul class="feature-list">
+        <li><strong>First Principles:</strong> Understand the underlying problem before coding. Don't copy patterns blindly.</li>
+        <li><strong>PEP 8:</strong> Follow standard Python PEP 8 formatting guidelines.</li>
+        <li><strong>Async Only:</strong> All I/O-bound operations (HTTP requests, file I/O during tests) MUST use <code>async/await</code>. Never block the event loop.</li>
+        <li><strong>Type Hints:</strong> All function signatures must be fully type-hinted. Add <code>from __future__ import annotations</code> at the top of new files.</li>
+        <li><strong>Dataclasses:</strong> Use standard library <code>dataclasses</code> for internal state management (not Pydantic, which is only used at the FastAPI layer).</li>
+        <li><strong>Logging:</strong> Do not use <code>print()</code> for debugging. Use Python's <code>logging</code> module. Ensure output is clean by default and verbose when <code>--debug</code> is passed.</li>
+      </ul>
+
+      <h2 id="submitting">Submitting Changes</h2>
+      <ol class="steps">
+        <li>Create a branch from <code>main</code> (e.g., <code>git checkout -b feature/new-load-pattern</code>).</li>
+        <li>Implement your changes. Keep PRs focused on a single feature or bugfix.</li>
+        <li>Add unit tests to cover your new logic.</li>
+        <li>Ensure all tests pass.</li>
+        <li>Write a clear commit message and open a Pull Request against `main`.</li>
+      </ol>
+
+      <!-- Footer -->
+      <footer class="footer">
+        <p>Overload v0.1.0 · MIT License · Built by <a href="https://github.com/dprakash2101" target="_blank" rel="noopener">Devi Prakash</a></p>
+        <p style="margin-top:8px">
+          <a href="https://github.com/dprakash2101/overload" target="_blank" rel="noopener">GitHub</a> ·
+          <a href="https://pypi.org/project/overload-cli/" target="_blank" rel="noopener">PyPI</a> ·
+          <a href="changelog.html">Changelog</a>
+        </p>
+      </footer>
+    </main>
+  </div>
+  <script>
+    document.querySelectorAll('.sidebar__link').forEach(link => {
+      link.addEventListener('click', () => {
+        document.querySelector('.sidebar').classList.remove('open');
+      });
+    });
+  </script>
+</body>
+</html>

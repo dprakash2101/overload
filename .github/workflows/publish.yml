@@ -60,15 +60,93 @@ jobs:
           path: dist/
           retention-days: 7
 
+  release:
+    name: Create Git tag and GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag_name: ${{ steps.tag.outputs.tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check if tag already exists
+        id: check_tag
+        run: |
+          TAG="v${{ inputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Tag $TAG already exists — skipping tag creation"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        id: tag
+        if: steps.check_tag.outputs.exists == 'false'
+        run: |
+          TAG="v${{ inputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Set tag output (existing tag)
+        if: steps.check_tag.outputs.exists == 'true'
+        id: tag_existing
+        run: echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ inputs.version }}
+          path: dist/
+
+      - name: Extract changelog for this version
+        id: changelog
+        run: |
+          VERSION="${{ inputs.version }}"
+          BODY=$(python -c "
+          import re, sys
+          text = open('CHANGELOG.md').read()
+          pattern = rf'## \[{re.escape(\"$VERSION\")}\].*?\n(.*?)(?=\n## \[|\Z)'
+          m = re.search(pattern, text, re.DOTALL)
+          if m:
+              print(m.group(1).strip())
+          else:
+              print('Release v$VERSION')
+          ")
+          # Write to file to avoid quoting issues
+          echo "$BODY" > release_notes.md
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: "Overload v${{ inputs.version }}"
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+          files: dist/*
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   publish:
     name: Publish to ${{ inputs.environment }}
-    needs: build
+    needs: [build, release]
     runs-on: ubuntu-latest
     environment:
       name: ${{ inputs.environment }}
       url: ${{ inputs.environment == 'pypi' && 'https://pypi.org/p/overload-cli' || 'https://test.pypi.org/p/overload-cli' }}
     permissions:
-      id-token: write  # required for trusted publishing (OIDC)
+      id-token: write
 
     steps:
       - name: Download dist artifact

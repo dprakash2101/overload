@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Collections and Variables in Overload — Learn how Overload parses Postman collections, handles environments, and resolves dynamic variables.">
+  <title>Collections & Variables — Overload Documentation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- ========== Top Navigation ========== -->
+  <nav class="top-nav">
+    <button class="hamburger" onclick="document.querySelector('.sidebar').classList.toggle('open')" aria-label="Toggle menu">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+    </button>
+    <a href="index.html" class="top-nav__logo">
+      <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14" stroke="url(#grd)" stroke-width="2.5"/><path d="M10 20L16 8l6 12" stroke="url(#grd)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="grd" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#818cf8"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs></svg>
+      Overload
+      <span class="top-nav__badge">v0.1.0</span>
+    </a>
+    <div class="top-nav__links">
+      <a href="index.html" class="top-nav__link">Home</a>
+      <a href="getting-started.html" class="top-nav__link">Getting Started</a>
+      <a href="cli-reference.html" class="top-nav__link">CLI</a>
+      <a href="test-patterns.html" class="top-nav__link">Patterns</a>
+      <a href="ci-cd.html" class="top-nav__link">CI/CD</a>
+      <a href="https://github.com/dprakash2101/overload" class="top-nav__github" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <!-- ========== Sidebar ========== -->
+    <aside class="sidebar">
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Overview</div>
+        <a href="index.html" class="sidebar__link">Introduction</a>
+        <a href="getting-started.html" class="sidebar__link">Getting Started</a>
+        <a href="getting-started.html#install" class="sidebar__link sidebar__sub">Installation</a>
+        <a href="getting-started.html#first-test" class="sidebar__link sidebar__sub">First Test</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Usage</div>
+        <a href="cli-reference.html" class="sidebar__link">CLI Reference</a>
+        <a href="browser-ui.html" class="sidebar__link">Browser UI</a>
+        <a href="test-patterns.html" class="sidebar__link">Test Patterns</a>
+        <a href="configuration.html" class="sidebar__link">Configuration</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Features</div>
+        <a href="collections.html" class="sidebar__link active">Collections &amp; Variables</a>
+        <a href="authentication.html" class="sidebar__link">Authentication</a>
+        <a href="assertions.html" class="sidebar__link">Assertions</a>
+        <a href="reports.html" class="sidebar__link">Reports</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Integration</div>
+        <a href="ci-cd.html" class="sidebar__link">CI/CD Integration</a>
+      </div>
+      <div class="sidebar__section">
+        <div class="sidebar__heading">Development</div>
+        <a href="architecture.html" class="sidebar__link">Architecture</a>
+        <a href="contributing.html" class="sidebar__link">Contributing</a>
+        <a href="changelog.html" class="sidebar__link">Changelog</a>
+      </div>
+    </aside>
+
+    <!-- ========== Main Content ========== -->
+    <main class="content">
+      <h1>Collections & Variables</h1>
+      <p class="subtitle">Overload uses Postman Collections natively. Learn how the parser works and how to harness the power of dynamic variables.</p>
+
+      <h2 id="postman-support">Postman Collection Support</h2>
+      <p>Overload's parser is designed to read Postman Collections directly. It supports both <code>v2.0.0</code> and <code>v2.1.0</code> schema versions. When reading a collection, Overload intelligently flattens nested folder structures while preserving the folder path and inheriting authentication from parent folders.</p>
+
+      <p><strong>Supported Features:</strong></p>
+      <ul class="feature-list">
+        <li>Nested folders with recursive flattening</li>
+        <li>All HTTP methods (GET, POST, PUT, DELETE, PATCH, etc.)</li>
+        <li>Headers (automatically ignores disabled headers)</li>
+        <li>Query parameters (both URL strings and explicit query objects)</li>
+        <li>Body types: raw (JSON, XML, text, HTML, JavaScript), form-data (text + file), urlencoded, GraphQL</li>
+        <li>Authentication: bearer, basic, apikey, oauth2</li>
+        <li>Collection variables</li>
+        <li>URL reconstruction from Postman URL objects (protocol + host + path)</li>
+      </ul>
+
+      <h2 id="export">Exporting from Postman</h2>
+      <p>To use your API requests in Overload, you need to export them from the Postman app:</p>
+      <ol class="steps">
+        <li>Open the Postman app.</li>
+        <li>Find your collection in the sidebar.</li>
+        <li>Click the three dots (<strong>...</strong>) next to the collection name.</li>
+        <li>Select <strong>Export</strong>.</li>
+        <li>Choose <strong>Collection v2.1</strong> (this is required).</li>
+        <li>Click <strong>Export</strong> and save the <code>.json</code> file to your working directory.</li>
+      </ol>
+
+      <h2 id="variables">Variable System</h2>
+      <p>Variables allow you to reuse values across your requests and inject dynamic data. Variables use the <code>{{variable_name}}</code> syntax.</p>
+
+      <p><strong>Three-Scope Resolution Priority:</strong></p>
+      <p>When Overload resolves a variable, it checks scopes in the following order of priority (highest first):</p>
+      <ol>
+        <li><strong>Runtime Overrides:</strong> Variables passed via the CLI (<code>--var</code>).</li>
+        <li><strong>Environment File:</strong> Variables loaded from a Postman environment file.</li>
+        <li><strong>Collection Variables:</strong> Variables defined within the collection itself.</li>
+      </ol>
+
+      <p><em>Recursive Resolution:</em> If a resolved variable value contains another variable (e.g., <code>{{base_url}}/api</code>), Overload will recursively resolve it.</p>
+
+      <h2 id="dynamic">Dynamic Variables</h2>
+      <p>Overload supports Postman's dynamic variables, allowing you to generate random data on the fly. This is essential for load testing to prevent cache hits and simulate real-world variance.</p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Variable</th><th>Output Description</th><th>Example Output</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>{{$randomInt}}</code></td><td>Random integer between 0 and 1000</td><td><code>402</code></td></tr>
+            <tr><td><code>{{$timestamp}}</code></td><td>Current Unix timestamp (seconds)</td><td><code>1717081523</code></td></tr>
+            <tr><td><code>{{$guid}}</code></td><td>A random UUID v4 string</td><td><code>c0f3d4c6-...</code></td></tr>
+            <tr><td><code>{{$randomBoolean}}</code></td><td>"true" or "false" string</td><td><code>"true"</code></td></tr>
+            <tr><td><code>{{$randomColor}}</code></td><td>A random CSS color name</td><td><code>"purple"</code></td></tr>
+            <tr><td><code>{{$randomFirstName}}</code></td><td>A random first name</td><td><code>"Alice"</code></td></tr>
+            <tr><td><code>{{$randomEmail}}</code></td><td>A random email address</td><td><code>"user123@example.com"</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2 id="environments">Environment Files</h2>
+      <p>You can manage variables using Postman Environment files. Export an environment from Postman just like you export a collection.</p>
+
+      <p>Load the environment file via the CLI:</p>
+      <pre data-lang="bash"><code>overload run --collection api.json --environment dev_env.json</code></pre>
+      <p><em>Note: Overload only loads variables that are marked as "enabled" in the environment file.</em></p>
+
+      <h2 id="runtime-vars">Runtime Variable Overrides</h2>
+      <p>The most powerful way to control your tests is via runtime variable overrides. The <code>--var</code> flag has the highest priority and can override both collection and environment variables.</p>
+
+      <pre data-lang="bash"><code>overload run --collection api.json \
+  --var base_url=https://staging.api.com \
+  --var api_key=secret_123</code></pre>
+
+      <p>This approach is highly recommended for CI/CD pipelines, allowing you to inject secrets without storing them in files.</p>
+
+      <h2 id="resolution-requests">Variable Resolution in Requests</h2>
+      <p>Overload resolves variables in almost every part of the HTTP request:</p>
+      <ul>
+        <li><strong>URLs:</strong> <code>{{base_url}}/api/users/{{$guid}}</code></li>
+        <li><strong>Headers:</strong> <code>Authorization: Bearer {{token}}</code></li>
+        <li><strong>Body Content:</strong> JSON payloads containing <code>{"email": "{{$randomEmail}}"}</code></li>
+        <li><strong>Query Parameters:</strong> Both keys and values are resolved.</li>
+      </ul>
+
+      <!-- Footer -->
+      <footer class="footer">
+        <p>Overload v0.1.0 · MIT License · Built by <a href="https://github.com/dprakash2101" target="_blank" rel="noopener">Devi Prakash</a></p>
+        <p style="margin-top:8px">
+          <a href="https://github.com/dprakash2101/overload" target="_blank" rel="noopener">GitHub</a> ·
+          <a href="https://pypi.org/project/overload-cli/" target="_blank" rel="noopener">PyPI</a> ·
+          <a href="changelog.html">Changelog</a>
+        </p>
+      </footer>
+    </main>
+  </div>
+  <script>
+    document.querySelectorAll('.sidebar__link').forEach(link => {
+      link.addEventListener('click', () => {
+        document.querySelector('.sidebar').classList.remove('open');
+      });
+    });
+  </script>
+</body>
+</html>
