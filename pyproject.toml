@@ -48,7 +48,7 @@ dev = [
 overload = "overload.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/dprakash2101/overload"
+Homepage = "https://dprakash2101.github.io/overload/"
 Repository = "https://github.com/dprakash2101/overload"
 Issues = "https://github.com/dprakash2101/overload/issues"
 Documentation = "https://dprakash2101.github.io/overload/"

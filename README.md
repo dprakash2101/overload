@@ -139,7 +139,7 @@ overload sequential --collection my_api.json --iterations 5 --delay 500
 | **Ramp** | Linearly increases from start RPS to end RPS |
 | **Breakpoint** | Binary search to find the exact RPS where latency or errors degrade |
 | **Custom** | Define your own stages: `[{"duration": 60, "rps": 100}, ...]` |
-| **Rate Limit** | Verifies that the API enforces its rate limit correctly |
+| **Rate Limit** | 2-phase validation: sends at cap (req/min) → cooldown → exceeds cap; returns a working / not_working / too_strict verdict |
 | **Sequential** | Runs each request in collection order, N iterations |
 
 ---

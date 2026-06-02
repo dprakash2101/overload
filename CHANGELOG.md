@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+**Rate Limit pattern — complete redesign**
+- Unit is now **req/min** (not req/s) — matches how rate limits are documented in API specs and gateways
+- Old design: burst + ramp (DDoS-style threshold hunt). New design: 2-phase validation with a clear verdict
+  - **Phase 1** — sends exactly `rate_limit_cap` req/min for 60 s (at the stated limit)
+  - **Cooldown** — waits 15 s for the rate-limiter's sliding window to reset
+  - **Phase 2** — sends `2 × rate_limit_cap` req/min for 60 s (deliberately exceeds the limit)
+- **Verdict** — one of three outcomes:
+  - `working` — no 429s in Phase 1, 429s observed in Phase 2 (expected)
+  - `not_working` — no 429s in either phase (rate limiter is not enforcing)
+  - `too_strict` — 429s appeared during Phase 1 (limit is tighter than configured)
+- Removed `rate_limit_requests` config field; only `rate_limit_cap` (req/min) remains
+- Live browser dashboard shows the active phase label and description during the test
+- HTML report section renamed to "Rate Limit Validation" with a phase-summary bar chart and verdict banner
+
+### Added
+
+- 26 unit tests for the new rate limit engine (`tests/test_rate_limiter.py`)
+  - `_phase_stats` edge cases, `_run_phase` mechanics, verdict paths, progress callbacks, cancellation
+
+---
+
 ## [0.1.0] — 2026-05-30
 
 First public release.

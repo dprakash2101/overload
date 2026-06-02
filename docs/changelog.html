@@ -77,6 +77,25 @@
       <p class="subtitle">All notable changes to this project will be documented in this file.</p>
 
       <div class="card">
+        <h2 class="card__title">Unreleased</h2>
+        <p class="card__desc"><strong>Branch:</strong> fix/rate-limit-per-minute</p>
+        <ul>
+          <li><strong>Rate Limit Redesign:</strong> Complete rewrite of the Rate Limit pattern. Unit changed from req/s to <strong>req/min</strong>. Old burst+ramp approach replaced with a deterministic 2-phase validation:
+            <ol style="margin-top:6px">
+              <li>Phase 1 — sends exactly <code>rate_limit_cap</code> req/min for 60 s (at the stated limit)</li>
+              <li>Cooldown — waits 15 s for the sliding window to reset</li>
+              <li>Phase 2 — sends <code>2 × rate_limit_cap</code> req/min for 60 s (deliberately exceeds the limit)</li>
+            </ol>
+          </li>
+          <li><strong>Verdict System:</strong> Each run now returns one of three outcomes: <code>working</code>, <code>not_working</code>, or <code>too_strict</code>.</li>
+          <li><strong>Live Phase Dashboard:</strong> Browser UI shows the current phase label and description in real time during the test.</li>
+          <li><strong>Report:</strong> HTML report section renamed to "Rate Limit Validation" with a phase-summary bar chart and a prominent verdict banner.</li>
+          <li><strong>Removed</strong> <code>rate_limit_requests</code> config field — only <code>rate_limit_cap</code> (req/min) remains.</li>
+          <li><strong>Tests:</strong> 26 new unit tests for the rate limit engine covering verdict logic, phase mechanics, progress callbacks, and cancellation.</li>
+        </ul>
+      </div>
+
+      <div class="card">
         <h2 class="card__title">v0.1.1 - Initial Release</h2>
         <p class="card__desc"><strong>Date:</strong> 2026-05-30</p>
         <ul>
