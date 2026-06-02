@@ -197,7 +197,6 @@ async def _run_test(args: argparse.Namespace) -> None:
         start_rps=10,
         spike_rps=rps,
         rate_limit_cap=rps,
-        rate_limit_requests=requests,
     )
 
     if args.stages:

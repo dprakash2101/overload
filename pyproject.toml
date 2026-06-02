@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "overload-cli"
-version = "0.1.1"
+version = "0.2.0"
 description = "Free load testing tool that reads Postman collections — browser UI + CLI"
 readme = "README.md"
 license = "MIT"
@@ -48,7 +48,7 @@ dev = [
 overload = "overload.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/dprakash2101/overload"
+Homepage = "https://dprakash2101.github.io/overload/"
 Repository = "https://github.com/dprakash2101/overload"
 Issues = "https://github.com/dprakash2101/overload/issues"
 Documentation = "https://dprakash2101.github.io/overload/"

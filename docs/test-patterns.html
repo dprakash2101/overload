@@ -20,7 +20,7 @@
     <a href="index.html" class="top-nav__logo">
       <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14" stroke="url(#grd)" stroke-width="2.5"/><path d="M10 20L16 8l6 12" stroke="url(#grd)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="grd" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#818cf8"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs></svg>
       Overload
-      <span class="top-nav__badge">v0.1.1</span>
+      <span class="top-nav__badge">v0.2.0</span>
     </a>
     <div class="top-nav__links">
       <a href="index.html" class="top-nav__link">Home</a>
@@ -256,21 +256,29 @@
 
       <!-- RATE LIMIT -->
       <h2 id="rate-limit">9. Rate Limit</h2>
-      <p><strong>What it does:</strong> Specifically designed to verify that an API's rate limiting (429 Too Many Requests) mechanism works correctly.</p>
-      <p><strong>When to use:</strong> Validating API Gateway configurations, WAF rules, or application-level rate limiters.</p>
-      <p><strong>How it works:</strong> 
-        Phase 1 (Burst): Fires <code>rate_limit_requests</code> instantly to trigger burst limits.<br>
-        Phase 2 (Ramp): Steps up from 10 RPS to <code>cap * 2</code>. At each step, it checks if ≥50% of responses are 429s.
-      </p>
-      
+      <p><strong>What it does:</strong> Validates that your API's rate limiter is working as configured — not just that it exists, but that it enforces the right threshold.</p>
+      <p><strong>When to use:</strong> After setting up an API Gateway rate limit, WAF rule, or application-level throttle. Answers: "Is my rate limiter actually doing what the docs say?"</p>
+      <p><strong>How it works (2-phase validation):</strong></p>
+      <ol>
+        <li><strong>Phase 1 — Under Threshold:</strong> Sends exactly <code>rate_limit_cap</code> requests over 60 seconds (at the stated limit). No 429s should appear here.</li>
+        <li><strong>Cooldown:</strong> Waits 15 seconds for the rate limiter's sliding window to reset.</li>
+        <li><strong>Phase 2 — Exceeding Threshold:</strong> Sends <code>2 × rate_limit_cap</code> requests over 60 seconds. 429s should appear here if the limiter is working.</li>
+      </ol>
+      <p><strong>Verdict — one of three outcomes:</strong></p>
+      <ul>
+        <li><code>working</code> — no 429s in Phase 1, 429s observed in Phase 2. Rate limiter is correctly enforced.</li>
+        <li><code>not_working</code> — no 429s in either phase. The rate limiter is not enforcing the threshold.</li>
+        <li><code>too_strict</code> — 429s appeared during Phase 1. The actual limit is lower than <code>rate_limit_cap</code>.</li>
+      </ul>
+      <p>The browser UI shows the active phase in real time ("Phase 1: Under Threshold", "Cooldown", "Phase 2: Exceeding Threshold"). The HTML report includes a phase-summary bar chart and a verdict banner.</p>
+
       <div class="table-wrap">
         <table>
           <thead>
             <tr><th>Config Field</th><th>Default</th><th>Description</th></tr>
           </thead>
           <tbody>
-            <tr><td><code>rate_limit_cap</code></td><td>60</td><td>The expected RPS rate limit of the API.</td></tr>
-            <tr><td><code>rate_limit_requests</code></td><td>120</td><td>Requests to fire during the initial burst.</td></tr>
+            <tr><td><code>rate_limit_cap</code></td><td>60</td><td>The stated rate limit of the API in <strong>req/min</strong>.</td></tr>
           </tbody>
         </table>
       </div>
@@ -297,7 +305,7 @@
 
       <!-- Footer -->
       <footer class="footer">
-        <p>Overload v0.1.1 · MIT License · Built by <a href="https://github.com/dprakash2101" target="_blank" rel="noopener">Devi Prakash</a></p>
+        <p>Overload v0.2.0 · MIT License · Built by <a href="https://github.com/dprakash2101" target="_blank" rel="noopener">Devi Prakash</a></p>
         <p style="margin-top:8px">
           <a href="https://github.com/dprakash2101/overload" target="_blank" rel="noopener">GitHub</a> ·
           <a href="https://pypi.org/project/overload-cli/" target="_blank" rel="noopener">PyPI</a> ·
