@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.2.0] — 2026-06-02
 
 ### Changed
 
@@ -92,4 +92,5 @@ First public release.
 - 124 unit tests across all layers (assertions, auth, collection parser, variables, HTTP client, models, report, API)
 - GitHub Actions CI matrix: Python 3.10 · 3.11 · 3.12 · 3.13
 
+[0.2.0]: https://github.com/dprakash2101/overload/compare/v0.1.1...v0.2.0
 [0.1.0]: https://github.com/dprakash2101/overload/releases/tag/v0.1.0
