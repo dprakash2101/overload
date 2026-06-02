@@ -17,9 +17,11 @@
 5. [Feature 3 — In-app documentation/help](#feature-3)
 6. [Feature 4 — Report from partial data on Stop](#feature-4)
 7. [Feature 5 — Beginner-friendly live status](#feature-5)
-8. [Suggested sequencing](#suggested-sequencing)
-9. [Verification](#verification)
-10. [Key architecture notes for implementers](#architecture-notes)
+8. [Feature 6 — MCP server for Claude Code](#feature-6)
+9. [Strategic direction — hosted/server mode for internal APIs](#strategic)
+10. [Suggested sequencing](#suggested-sequencing)
+11. [Verification](#verification)
+12. [Key architecture notes for implementers](#architecture-notes)
 
 ---
 
@@ -317,8 +319,156 @@ one pattern.
 
 ---
 
+<a name="feature-6"></a>
+## 8. Feature 6 — MCP server for Claude Code
+
+### 8.1 Goal
+Expose Overload's engine as a **Model Context Protocol (MCP) server** so Claude
+Code (and any MCP client) can drive load tests conversationally, e.g.
+*"Run a burst test on this collection and fail if p95 > 500 ms."* This is
+high-leverage and low-cost: the engine is already a clean async library
+(`parse_collection`, the load patterns, `Stats`, `assertions`), and the web layer
+already orchestrates exactly this flow in `_run_test`.
+
+### 8.2 Design
+
+**A. Refactor orchestration into a shared service (prerequisite).**
+The run orchestration currently lives inline in `web/routes/api.py` `_run_test`
+(lines 249-352): build `HttpClient` → `prepare_collection_auth` → dispatch to
+pattern/`run_sequential`/`run_rate_limit_test` → `Stats.compute` → assertions →
+`generate_report`. Extract this into a reusable service, e.g.
+`src/overload/engine/service.py` with something like:
+```python
+async def run_test(collection, test_type, config, *, variables, thresholds=None,
+                   data_source=None, selected_indices=None, output_dir=...,
+                   on_progress=None, cancel_event=None) -> RunResult
+```
+Then **both** the web route and the MCP server call it — no duplicated logic.
+This refactor also benefits Features 1, 2 and 4 (single place to thread
+`data_source`, `selected_indices`, and the stop-and-report fix).
+
+**B. MCP server — new `src/overload/mcp_server.py`.**
+- Use the official `mcp` Python SDK (FastMCP). Add an optional extra:
+  `pip install "overload-cli[mcp]"`.
+- Transport: **stdio** (what Claude Code launches locally). HTTP/SSE can come later.
+- Tools to expose (thin wrappers over the shared service + existing functions):
+  - `list_patterns()` → names + descriptions of the 10 test types.
+  - `describe_collection(path)` → request count, names, methods, detected
+    `{{placeholders}}` (reuses the Feature 1 placeholder-discovery helper).
+  - `run_load_test(collection_path, pattern, config, assertions=None,
+    environment_path=None, data_csv=None, selected_requests=None)` →
+    **starts** a run, returns a `run_id` immediately (long tests must not block the
+    MCP call). Mirrors the web `start_test` design.
+  - `get_run_status(run_id)` → phase / completed / elapsed (poll while running).
+  - `get_run_results(run_id)` → computed `Stats` summary + verdict + report path.
+  - `stop_run(run_id)` → graceful stop (reuses the Feature 4 cancel path).
+- Keep an in-process run registry (same shape as `api.py` `_state["runs"]`), or
+  share it via the service module so web + MCP see the same runs.
+
+**C. CLI wiring — `src/overload/cli.py`.**
+- Add an `overload mcp` subcommand that starts the stdio MCP server.
+- Document registration, e.g.:
+  ```bash
+  claude mcp add overload -- overload mcp
+  ```
+
+### 8.3 Guardrails (important — a load tester is a powerful tool)
+- Sane caps surfaced to the model: warn/refuse on extreme `concurrency` /
+  `total_requests` unless explicitly confirmed.
+- `run_load_test` returns a clear summary the model can reason about (verdict,
+  p95, error rate) rather than raw dumps.
+- Never auto-open browsers or write outside the configured `output_dir`.
+
+### 8.4 Tests — `tests/test_mcp_server.py`
+- Tool schemas validate; `list_patterns` / `describe_collection` return expected
+  shapes against a fixture collection.
+- `run_load_test` → `get_run_results` happy path against a mock transport.
+- The extracted `engine/service.py` gets its own unit tests (it becomes the
+  critical shared path for web, CLI, and MCP).
+
+### 8.5 Dependencies
+- New optional extra in `pyproject.toml`: `mcp = ["mcp>=1.0"]` (exact package/
+  version to confirm at implementation time). Keep it **optional** so the core
+  install stays lean.
+
+---
+
+<a name="strategic"></a>
+## 9. Strategic direction — hosted/server mode for internal APIs
+
+> Captured in response to: *"Why can't we publish to a server and load test
+> internal APIs — is that a good option, or is the CLI enough?"* This section is
+> **analysis + recommendation**, not a committed feature.
+
+### 9.1 Recommendation (short version)
+- **CLI + local UI is enough** for individual, ad-hoc, and CI use. Don't replace it.
+- **Reachability is already solved** in this setup: the developer's laptop reaches
+  the internal APIs over **VPN**, so the usual top reason to host a runner (network
+  access) does **not** apply here. That weakens the case for a server.
+- A server is therefore only worth it later for **team-scale** reasons —
+  scheduling/continuous runs without a laptop online, shared result history, or
+  RPS beyond one machine — not for access.
+- **Build MCP (Feature 6) first**; it's higher-leverage and far cheaper.
+- **Defer distributed load generation and any public SaaS** under YAGNI until
+  there's proven demand and a security model.
+
+### 9.2 Where a self-hosted runner would (and would not) help
+> **Context update:** the laptop already reaches internal endpoints via VPN, so
+> *reachability is not a problem to solve.* That removes the single most common
+> justification for a hosted runner. The points below are the **remaining** —
+> narrower — reasons, which are "nice to have at team scale," not blockers.
+
+Remaining value, only if/when these become real needs:
+- **Scheduling / continuous testing** without keeping a laptop on and connected.
+- **Shared run history & dashboards** for a team (today `_state["runs"]` is
+  in-memory and per-process; survives nothing).
+- **Higher RPS** than one machine + Python asyncio can push (needs distributed
+  workers — a large, separate track).
+- **Not tying up the laptop / VPN session** for long soak tests.
+
+If pursued, it's still an **incremental, opt-in deployment mode**, not a rewrite —
+**the FastAPI app already _is_ a server** (`overload` runs uvicorn via
+`_start_ui`; the `--host` flag already exists):
+- Ship a **Docker image**; allow binding to `0.0.0.0`.
+- Add **persistent run history** (SQLite) so results survive restarts.
+- Add **optional auth** (token / basic) before exposing beyond localhost.
+- Add **scheduling** (cron-style) for continuous runs.
+
+**Bottom line for the current setup:** with VPN access working, the CLI/local UI
+covers the need today. Treat a hosted runner as a *future, team-scale* option —
+not part of this release.
+
+### 9.3 Why NOT a public/multi-tenant SaaS (for now)
+- **Security liability:** a network-reachable load tester is a DoS weapon if
+  abused. It needs a **target allowlist**, per-run **request/concurrency caps**,
+  and access control before it is safe to host.
+- **Secret handling:** Postman collections embed tokens/credentials; storing them
+  server-side raises real compliance/security concerns.
+- **Scope explosion:** multi-tenancy, a real database, billing/quotas, infra/ops.
+- **Single-node RPS ceiling:** one box + Python asyncio caps throughput. Serious
+  load needs **distributed workers** (a coordinator + multiple generators) — a
+  major engineering track on its own. Defer until single-node is proven
+  insufficient.
+
+### 9.4 If/when hosted mode is pursued — guardrails (non-negotiable)
+- Target allowlist (only approved internal hosts).
+- Hard caps on concurrency and total requests per run, with admin overrides.
+- AuthN/AuthZ on every endpoint; no anonymous runs.
+- Secrets kept out of persistent storage where possible (reference env/secret
+  managers instead of embedding).
+- Audit log of who ran what against which target.
+
+### 9.5 Suggested phasing
+1. **Now:** MCP (Feature 6) + the five UX/engine features.
+2. **Next (opt-in):** self-hosted runner — Docker image + SQLite history + optional
+   auth, deployed inside the network.
+3. **Later (only if needed):** scheduling, then distributed load generation, then
+   (only with a real security model) any multi-tenant/hosted offering.
+
+---
+
 <a name="suggested-sequencing"></a>
-## 8. Suggested sequencing for implementers
+## 10. Suggested sequencing for implementers
 
 Each feature is independently shippable and should be its own focused PR
 (per `CLAUDE.md` "Keep PRs focused").
