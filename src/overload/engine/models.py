@@ -102,9 +102,8 @@ class PatternConfig:
     # Custom test
     stages: list[dict] = field(default_factory=list)
 
-    # Rate limit test
+    # Rate limit test (req/min)
     rate_limit_cap: int = 60
-    rate_limit_requests: int = 120
 
     # Sequential runner
     iterations: int = 1

@@ -136,11 +136,19 @@ function renderPerSecTable(rows){
 
 function renderRampTable(rows){
   if(!rows||!rows.length)return"";
-  var h='<div class="tw"><table><thead><tr><th>Rate</th><th>OK</th><th>429</th><th>Throttle %</th><th>Result</th></tr></thead><tbody>';
-  rows.forEach(function(r){
-    var b=r.rate_limited>0?'<span class="badge brl">throttled</span>':'<span class="badge bok">passed</span>';
+  var phases=rows.filter(function(r){return r.phase!=='verdict';});
+  var vRow=rows.find(function(r){return r.phase==='verdict';});
+  var h='';
+  if(vRow){
+    var vc=vRow.verdict==='working'?'pass':vRow.verdict==='too_strict'?'fail':'fail';
+    var vi=vRow.verdict==='working'?'&#x2705;':'&#x274C;';
+    var vt=vRow.verdict==='working'?'Rate Limiting Active':vRow.verdict==='too_strict'?'Rate Limiting Too Strict':'Rate Limiting Not Detected';
+    h+='<div class="verdict '+vc+'"><div class="vi">'+vi+'</div><div><div class="vt">'+vt+'</div><div class="vs">'+esc(vRow.message)+'</div></div></div>';
+  }
+  h+='<div class="tw"><table><thead><tr><th>Phase</th><th>Rate</th><th>Total</th><th>OK</th><th>429</th><th>Throttle %</th></tr></thead><tbody>';
+  phases.forEach(function(r){
     var bar='<div style="width:'+r.pct+'%;height:4px;background:var(--bad);border-radius:2px;margin-top:3px"></div>';
-    h+='<tr><td>'+r.rps+'/s</td><td>'+r.ok+'</td><td>'+r.rate_limited+'</td><td>'+r.pct+'%'+bar+'</td><td>'+b+'</td></tr>';
+    h+='<tr><td>'+esc(r.label)+'</td><td>'+r.rpm+'/min</td><td>'+r.total+'</td><td>'+r.ok+'</td><td>'+r.rate_limited+'</td><td>'+r.pct+'%'+bar+'</td></tr>';
   });
   return h+'</tbody></table></div>';
 }
@@ -273,15 +281,17 @@ function drawCharts(d){
 
 function drawRampChart(rows){
   if(!rows||!rows.length)return;
-  mk("cRamp",{type:"line",
-    data:{labels:rows.map(function(r){return r.rps+"/s";}),
+  var phases=rows.filter(function(r){return r.phase!=='verdict';});
+  if(!phases.length)return;
+  mk("cRamp",{type:"bar",
+    data:{labels:phases.map(function(r){return r.label||r.phase;}),
       datasets:[
-        {label:"OK",data:rows.map(function(r){return r.ok;}),borderColor:"rgba(14,138,95,.9)",backgroundColor:"rgba(14,138,95,.1)",tension:.3,fill:true,pointRadius:2},
-        {label:"429",data:rows.map(function(r){return r.rate_limited;}),borderColor:"rgba(192,57,43,.9)",backgroundColor:"rgba(192,57,43,.1)",tension:.3,fill:true,pointRadius:2}
+        {label:"OK",data:phases.map(function(r){return r.ok;}),backgroundColor:"rgba(14,138,95,.7)",borderRadius:3},
+        {label:"429",data:phases.map(function(r){return r.rate_limited;}),backgroundColor:"rgba(192,57,43,.7)",borderRadius:3}
       ]},
     options:{responsive:true,maintainAspectRatio:false,
       plugins:{legend:{labels:{color:"#6b7280"}}},
-      scales:{x:{grid:{color:"#e5e7eb"}},y:{grid:{color:"#e5e7eb"}}}}});
+      scales:{x:{grid:{color:"#e5e7eb"}},y:{grid:{color:"#e5e7eb"},beginAtZero:true}}}});
 }
 
 function buildPage(){
@@ -299,7 +309,7 @@ function buildPage(){
   document.getElementById("hMeta").innerHTML=metaHtml;
 
   var nav='<a href="#sSummary">Summary</a><a href="#sLat">Latency</a><a href="#sTl">Timeline</a><a href="#sLog">Log</a>';
-  if(rr&&rr.length)nav+='<a href="#sRamp">Ramp</a>';
+  if(rr&&rr.length)nav+='<a href="#sRamp">Rate Limit</a>';
   document.getElementById("nav").innerHTML=nav;
 
   var html="";
@@ -330,8 +340,8 @@ function buildPage(){
 
   // Ramp
   if(rr&&rr.length){
-    html+='<div class="sec" id="sRamp"><div class="sh">Rate Limit Ramp</div>';
-    html+='<div class="cw" style="margin-bottom:10px"><div class="ct">Throttle rate by RPS</div><canvas id="cRamp"></canvas></div>';
+    html+='<div class="sec" id="sRamp"><div class="sh">Rate Limit Validation</div>';
+    html+='<div class="cw" style="margin-bottom:10px"><div class="ct">Requests by Phase</div><canvas id="cRamp"></canvas></div>';
     html+=renderRampTable(rr);
     html+='</div>';
   }

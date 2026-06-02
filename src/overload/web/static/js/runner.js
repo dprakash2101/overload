@@ -17,7 +17,7 @@ window.RunnerPage = (function() {
     { id: 'burst', name: 'Burst Test', desc: 'Fire all requests at once', shape: [13,13,0,0,0,0,0,0,0,0,0,0,0] },
     { id: 'breakpoint', name: 'Breakpoint Test', desc: 'Binary search for exact degradation threshold', shape: [3,5,8,6,7,7,7,7,7,7,7,7,7] },
     { id: 'custom', name: 'Custom Test', desc: 'Define your own load stages', shape: [2,5,5,10,10,10,7,7,3,3,1,1,0] },
-    { id: 'ratelimit', name: 'Rate Limit', desc: 'Test if API rate limiting is working', shape: [2,4,6,8,10,12,12,12,12,12,12,12,12] },
+    { id: 'ratelimit', name: 'Rate Limit', desc: 'Verify API rate limiting works as expected', shape: [5,5,5,5,5,5,0,0,10,10,10,10,10] },
     { id: 'sequential', name: 'Sequential', desc: 'Run collection in order, N iterations', shape: [3,3,3,3,3,3,3,3,3,3,3,3,3] }
   ];
 
@@ -78,8 +78,7 @@ window.RunnerPage = (function() {
       { key: 'error_threshold_pct', label: 'Error threshold', type: 'range', min: 1, max: 50, value: 10, unit: '%', tip: 'Error rate above this = degradation detected.' }
     ],
     ratelimit: [
-      { key: 'rate_limit_cap', label: 'Expected rate limit', type: 'range', min: 1, max: 1000, value: 60, unit: 'req/s', tip: 'What you expect the rate limit to be.' },
-      { key: 'rate_limit_requests', label: 'Burst requests', type: 'range', min: 10, max: 1000, value: 120, tip: 'Number of requests to fire in burst phase.' }
+      { key: 'rate_limit_cap', label: 'Expected rate limit', type: 'range', min: 1, max: 1000, value: 60, unit: 'req/min', tip: 'Your API\'s stated rate limit in requests per minute.' }
     ],
     sequential: [
       { key: 'iterations', label: 'Iterations', type: 'range', min: 1, max: 100, value: 1, tip: 'Times to run through the full collection.' },
@@ -454,9 +453,17 @@ window.RunnerPage = (function() {
     document.getElementById('testTypes').style.display = 'none';
     var dash = document.getElementById('liveDashboard');
     dash.style.display = 'block';
+    var isRateLimit = selectedType === 'ratelimit';
+    var phaseInfoHtml = isRateLimit
+      ? '<div id="rlPhaseInfo" class="rl-phase-info" style="background:var(--card-bg,#fff);border:1px solid var(--border,#dde1ec);border-radius:8px;padding:14px 18px;margin-bottom:14px">' +
+          '<div style="font-weight:700;font-size:13px;margin-bottom:6px" id="rlPhaseTitle">Preparing...</div>' +
+          '<div style="color:var(--muted,#6b7280);font-size:11px" id="rlPhaseDesc">Rate limit validation test starting</div>' +
+        '</div>'
+      : '';
     dash.innerHTML =
       '<div class="card">' +
         '<div class="card-title">Running: ' + selectedType.toUpperCase() + ' — ' + currentRunId + '</div>' +
+        phaseInfoHtml +
         '<div class="kpi-grid" id="liveKpis">' +
           '<div class="kpi kpi-mid"><div class="kpi-label">Total</div><div class="kpi-value" id="kpiTotal">0</div></div>' +
           '<div class="kpi kpi-ok"><div class="kpi-label">Success Rate</div><div class="kpi-value" id="kpiSuccess">-</div></div>' +
@@ -515,6 +522,30 @@ window.RunnerPage = (function() {
     if (pctEl) pctEl.textContent = pct + '%';
     var phaseEl = document.getElementById('progressPhase');
     if (phaseEl) phaseEl.textContent = data.phase || '';
+
+    // Rate limit phase info
+    var rlTitle = document.getElementById('rlPhaseTitle');
+    var rlDesc = document.getElementById('rlPhaseDesc');
+    if (rlTitle && rlDesc && data.phase) {
+      var p = data.phase;
+      if (p.indexOf('Phase 1') === 0) {
+        rlTitle.textContent = 'Phase 1: Under Threshold';
+        rlDesc.textContent = 'Sending requests at your stated rate limit to confirm normal operation';
+        rlTitle.style.color = 'var(--ok,#0e8a5f)';
+      } else if (p.indexOf('Cooldown') === 0) {
+        rlTitle.textContent = 'Cooldown';
+        rlDesc.textContent = 'Waiting for rate limiter window to reset before exceeding the limit';
+        rlTitle.style.color = 'var(--muted,#6b7280)';
+      } else if (p.indexOf('Phase 2') === 0) {
+        rlTitle.textContent = 'Phase 2: Exceeding Threshold';
+        rlDesc.textContent = 'Sending requests above your rate limit — expecting 429 responses';
+        rlTitle.style.color = 'var(--bad,#c0392b)';
+      } else if (p === 'complete') {
+        rlTitle.textContent = 'Test Complete';
+        rlDesc.textContent = 'Rate limit validation finished — check results below';
+        rlTitle.style.color = 'var(--blue,#1d5fa8)';
+      }
+    }
 
     // Live RPS chart
     if (data.current_rps > 0 || rpsHistory.length > 0) {

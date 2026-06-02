@@ -358,6 +358,13 @@ window.OverloadCharts = (function() {
         var bpStart = c.start_rps || 10, bpMax = c.max_rps || 500;
         points.push({ t: 0, rps: bpStart }, { t: 60, rps: (bpStart + bpMax) / 2 }, { t: 120, rps: bpMax });
         break;
+      case 'ratelimit':
+        var rlCap = c.rate_limit_cap || 60;
+        var rlRps = rlCap / 60;
+        points.push({ t: 0, rps: rlRps }, { t: 60, rps: rlRps });
+        points.push({ t: 60, rps: 0 }, { t: 75, rps: 0 });
+        points.push({ t: 75, rps: rlRps * 2 }, { t: 135, rps: rlRps * 2 });
+        break;
       case 'custom':
         var stages = c.stages || [];
         stages.forEach(function(s) { points.push({ t: t, rps: s.rps }); t += s.duration; points.push({ t: t, rps: s.rps }); });
