@@ -76,9 +76,95 @@ New fixture: `multi_request_collection` — 3-request collection wired to a `Tes
 
 ---
 
+## Feature 5 — Beginner-friendly live status
+
+**Files changed:**
+- `src/overload/web/static/js/runner.js`
+
+- Added `friendlyPhase(phase)` — maps every pattern phase string to a plain-English sentence shown below the progress bar during a run.
+- Added `?` tooltip chips on all 6 live KPI labels (Total, Success Rate, Avg Latency, Current RPS, Elapsed, Errors).
+- Added "Beginner mode" toggle button in the live dashboard header. When ON, shows concise sub-labels under each KPI value. State persisted in `localStorage`.
+- Added `toggleBeginnerMode()` and `applyBeginnerMode()` helper functions.
+- Added `beginnerMode` module-level variable initialised from `localStorage`.
+
+---
+
+## Feature 3 — In-app documentation
+
+**Files changed:**
+- `src/overload/web/templates/index.html` — added "Docs" nav link and `docs.js` script tag
+- `src/overload/web/static/js/app.js` — added `case 'docs': DocsPage.render(content); break;` in `navigate()`
+- `src/overload/web/static/js/docs.js` — new file
+- `src/overload/cli.py` — added Docs mention to startup banner
+
+**New `docs.js`:**
+- Two-pane layout: left topic list, right content pane. All navigation is client-side — no page reload, no new tab.
+- 8 topics: Getting Started, Collections & Variables, CSV Data Files, Authentication, Test Patterns, Assertions, CI/CD, Reports.
+- Intra-doc links use `data-topic="..."` handled by the same JS click handler.
+- Content is a plain JS object of HTML strings — no build step, no external dependencies.
+
+---
+
+## Feature 1 — CSV data-driven testing
+
+**Files changed / created:**
+- `src/overload/collection/data_source.py` — new file
+- `src/overload/collection/variables.py` — added `derive()` method
+- `src/overload/engine/http_client.py` — added `data_source` param and row-index logic
+- `src/overload/web/routes/api.py` — new endpoints, `/api/detect` CSV support, wiring
+- `src/overload/web/static/js/collection.js` — CSV upload UI
+- `src/overload/cli.py` — `--data PATH` flag on `run` and `sequential`
+- `tests/test_data_source.py` — new file, 13 tests
+
+**`DataSource` (`data_source.py`):**
+- `from_csv(path_or_file)` — accepts file path string or file-like object (bytes or str); strips BOM.
+- `row_for(index)` — returns rows round-robin (`index % len(rows)`); returns `{}` when no rows.
+
+**`VariableContext.derive(extra)`:**
+- Prepends a CSV-row scope at the top of the existing scope chain.
+- Precedence: CSV row > runtime > environment > collection.
+- Does not mutate the base context — safe for concurrent use.
+
+**`HttpClient`:**
+- New `data_source: DataSource | None = None` constructor param; defaults to `None` (no CSV = existing behaviour unchanged).
+- New `_row_index` counter (monotonic, no `await` between read and increment — atomic under asyncio).
+- In `execute()`: if `data_source` is set, derives a per-row context before resolving any variables. URL, headers, body, query params, and auth all get CSV values transparently.
+
+**API (`api.py`):**
+- `_state["data_source"]` added.
+- `POST /api/data/upload` — CSV file upload; returns `{row_count, columns, matched_placeholders, unmatched_placeholders}`.
+- `POST /api/data/load-local` — load by file path.
+- `POST /api/data/clear` — detach.
+- `GET /api/data/status` — check if a CSV is attached.
+- `GET /api/detect` — now also surfaces `.csv` files from the working directory.
+- `start_test` passes `data_source=_state.get("data_source")` into `HttpClient`.
+
+**Collection page (`collection.js`):**
+- "Data file (CSV)" drop-zone card shown after a collection is loaded.
+- After upload renders matched placeholders (green ✓) and unmatched ones (amber warning).
+- "Remove" button calls `POST /api/data/clear` and hides the status line.
+
+**CLI (`cli.py`):**
+- `--data PATH` added to `run` and `sequential` subcommands.
+- Prints row count + column names in the banner before the run starts.
+
+**Tests (`tests/test_data_source.py`):**
+- 13 new tests (total suite: 195, all passing).
+- `TestDataSourceFromCsv` — path, file-like bytes, file-like str, empty CSV, BOM stripping.
+- `TestDataSourceRowFor` — round-robin wrap, empty-rows guard.
+- `TestVariableContextDerive` — CSV overrides env, base context unchanged, non-overridden vars still resolve, chained derives stack.
+- `TestHttpClientDataSource` — consecutive calls cycle rows (mock transport), no-data-source path works normally.
+
+---
+
 ## Notes for Changelog
 
 - New terminal run status: `"stopped"` (visible in Results table and run data API).
 - `POST /api/test/stop` behaviour changed: cooperative cancellation with 10s grace, not immediate hard cancel.
 - `POST /api/test/start` now returns 400 when `selected_requests` is an explicitly empty array.
-- No breaking changes to existing API contracts — `selected_requests` field remains optional.
+- No breaking changes to existing API contracts — `selected_requests` and `data_source` are both optional.
+- New API endpoints: `/api/data/upload`, `/api/data/load-local`, `/api/data/clear`, `/api/data/status`.
+- `/api/detect` response now includes a `csv_files` array.
+- New CLI flags: `--data PATH` on `run` and `sequential`.
+- New "Docs" tab in the browser UI.
+- Beginner mode toggle in the live dashboard (localStorage-persisted).
