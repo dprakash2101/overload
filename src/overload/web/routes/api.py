@@ -219,6 +219,12 @@ async def start_test(body: dict) -> JSONResponse:
     config_dict = body.get("config", {})
     selected_indices = body.get("selected_requests")
 
+    if selected_indices is not None and len(selected_indices) == 0:
+        return JSONResponse(
+            {"status": "error", "message": "No requests selected"},
+            status_code=400,
+        )
+
     thresholds: list[Threshold] = []
     for entry in body.get("thresholds", []):
         if isinstance(entry, dict) and "metric" in entry:
@@ -279,10 +285,11 @@ async def start_test(body: dict) -> JSONResponse:
                     )
                     stats.add_all(results)
 
+            stopped = cancel_event.is_set()
             computed = stats.compute()
 
             verdict_data = None
-            if thresholds and computed:
+            if thresholds and computed and not stopped:
                 verdict = evaluate(computed, thresholds)
                 verdict_data = {
                     "passed": verdict.passed,
@@ -303,41 +310,62 @@ async def start_test(body: dict) -> JSONResponse:
                 "concurrency": config.concurrency,
                 "total_requests_configured": config.total_requests,
             }
-            report_path = generate_report(
-                stats, test_type, report_config,
-                run_id=run_id, ramp_rows=ramp_rows,
-                output_dir=output_dir,
-                verdict=verdict_data,
-            )
+            report_path: str | None = None
+            if computed:
+                report_path = generate_report(
+                    stats, test_type, report_config,
+                    run_id=run_id, ramp_rows=ramp_rows,
+                    output_dir=output_dir,
+                    verdict=verdict_data,
+                )
 
+            run_status = "stopped" if stopped else "complete"
             _state["runs"][run_id] = {
                 "run_id": run_id,
                 "test_type": test_type,
                 "stats": computed,
                 "ramp_rows": ramp_rows,
                 "report_path": report_path,
-                "status": "complete",
+                "status": run_status,
                 "verdict": verdict_data,
             }
 
+            phase = "complete (stopped)" if stopped else "complete"
             await broadcast_progress(run_id, RunProgress(
                 run_id=run_id,
                 total_requests=stats.total,
                 completed_requests=stats.total,
                 current_rps=0,
-                phase="complete",
+                phase=phase,
                 elapsed_seconds=computed["duration_seconds"] if computed else 0,
             ))
-            logger.info("Test complete: %s (%d requests)", run_id, stats.total)
+            logger.info("Test %s: %s (%d requests)", run_status, run_id, stats.total)
 
         except asyncio.CancelledError:
-            logger.info("Test cancelled: %s", run_id)
+            logger.info("Test hard-cancelled: %s", run_id)
             computed = stats.compute() if stats.total > 0 else None
+            report_path = None
+            if computed:
+                try:
+                    report_config = {
+                        "test_type": test_type,
+                        "concurrency": config.concurrency,
+                        "total_requests_configured": config.total_requests,
+                    }
+                    report_path = generate_report(
+                        stats, test_type, report_config,
+                        run_id=run_id, ramp_rows=ramp_rows,
+                        output_dir=output_dir,
+                    )
+                except Exception:
+                    logger.exception("Report generation failed after hard cancel: %s", run_id)
             _state["runs"][run_id] = {
                 "run_id": run_id,
                 "test_type": test_type,
                 "stats": computed,
-                "status": "cancelled",
+                "ramp_rows": ramp_rows,
+                "report_path": report_path,
+                "status": "stopped",
             }
             await broadcast_progress(run_id, RunProgress(
                 run_id=run_id,
@@ -362,11 +390,15 @@ async def stop_test() -> JSONResponse:
     cancel_event = _state.get("cancel_event")
     if cancel_event:
         cancel_event.set()
-        logger.info("Stop signal sent")
+        logger.info("Stop signal sent — waiting for graceful shutdown")
     task = _state.get("current_task")
     if task and not task.done():
-        task.cancel()
-        logger.info("Task cancelled")
+        async def _watchdog(t: asyncio.Task) -> None:  # type: ignore[type-arg]
+            await asyncio.sleep(10)
+            if not t.done():
+                t.cancel()
+                logger.info("Watchdog: hard-cancelled task after grace window")
+        asyncio.create_task(_watchdog(task))
     return JSONResponse({"status": "ok"})
 
 

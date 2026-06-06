@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import time
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from overload.engine.models import RequestResult
 from overload.web.app import create_app
 
 
@@ -160,3 +165,151 @@ class TestConfigEndpoints:
     def test_load_config_not_found(self, client) -> None:
         resp = client.get("/api/config/load")
         assert resp.status_code == 404
+
+
+@pytest.fixture
+def multi_request_collection(tmp_path):
+    collection = {
+        "info": {
+            "name": "Multi",
+            "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+        },
+        "item": [
+            {"name": "R1", "request": {"method": "GET", "url": "https://a.com/1"}},
+            {"name": "R2", "request": {"method": "GET", "url": "https://a.com/2"}},
+            {"name": "R3", "request": {"method": "GET", "url": "https://a.com/3"}},
+        ],
+    }
+    coll_path = tmp_path / "multi.json"
+    coll_path.write_text(json.dumps(collection))
+    app = create_app(working_dir=str(tmp_path))
+    tc = TestClient(app)
+    tc.post("/api/collection/load-local", json={"path": str(coll_path)})
+    return tc
+
+
+class TestSelectedRequests:
+    def test_empty_selection_returns_400(self, multi_request_collection) -> None:
+        resp = multi_request_collection.post(
+            "/api/test/start",
+            json={"test_type": "burst", "config": {}, "selected_requests": []},
+        )
+        assert resp.status_code == 400
+        assert "No requests selected" in resp.json()["message"]
+
+    def test_valid_selection_accepted(self, multi_request_collection) -> None:
+        resp = multi_request_collection.post(
+            "/api/test/start",
+            json={"test_type": "burst", "config": {}, "selected_requests": [0, 2]},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    def test_no_selection_field_runs_all(self, multi_request_collection) -> None:
+        resp = multi_request_collection.post(
+            "/api/test/start",
+            json={"test_type": "burst", "config": {}},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+
+class TestStopGeneratesReport:
+    async def test_graceful_stop_produces_stopped_status(self, tmp_path) -> None:
+        """Stopping a test gracefully should produce status 'stopped' with a report."""
+        fake_results = [
+            RequestResult(
+                request_name="req",
+                method="GET",
+                url="https://a.com",
+                status_code=200,
+                latency_ms=50.0,
+                timestamp=float(i),
+            )
+            for i in range(5)
+        ]
+
+        async def fake_execute(client, requests, variables, config, run_id, cancel_event, on_progress):
+            cancel_event.set()
+            return fake_results
+
+        mock_pattern = AsyncMock()
+        mock_pattern.execute.side_effect = fake_execute
+
+        collection = {
+            "info": {
+                "name": "Stop Test",
+                "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+            },
+            "item": [{"name": "R1", "request": {"method": "GET", "url": "https://a.com"}}],
+        }
+        coll_path = tmp_path / "coll.json"
+        coll_path.write_text(json.dumps(collection))
+
+        with patch("overload.web.routes.api.get_pattern", return_value=mock_pattern):
+            app = create_app(working_dir=str(tmp_path))
+            from httpx import ASGITransport, AsyncClient
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                await ac.post("/api/collection/load-local", json={"path": str(coll_path)})
+                resp = await ac.post("/api/test/start", json={"test_type": "burst", "config": {}})
+                assert resp.status_code == 200
+                run_id = resp.json()["run_id"]
+
+                # Give the background task time to complete
+                await asyncio.sleep(0.5)
+
+                runs_resp = await ac.get("/api/runs")
+                runs = {r["run_id"]: r for r in runs_resp.json()["runs"]}
+
+                assert run_id in runs
+                assert runs[run_id]["status"] == "stopped"
+
+                data_resp = await ac.get(f"/api/runs/{run_id}/data")
+                data = data_resp.json()
+                assert data["report_path"] is not None
+                assert Path(data["report_path"]).exists()
+
+    async def test_hard_cancel_still_stores_stopped_status(self, tmp_path) -> None:
+        """Hard-cancelling the task should still result in status 'stopped', not 'cancelled'."""
+        collection = {
+            "info": {
+                "name": "Hard Cancel",
+                "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+            },
+            "item": [{"name": "R1", "request": {"method": "GET", "url": "https://a.com"}}],
+        }
+        coll_path = tmp_path / "coll2.json"
+        coll_path.write_text(json.dumps(collection))
+
+        hang_event = asyncio.Event()
+
+        async def fake_execute_hang(client, requests, variables, config, run_id, cancel_event, on_progress):
+            await hang_event.wait()  # blocks until cancelled
+            return []
+
+        mock_pattern = AsyncMock()
+        mock_pattern.execute.side_effect = fake_execute_hang
+
+        with patch("overload.web.routes.api.get_pattern", return_value=mock_pattern):
+            app = create_app(working_dir=str(tmp_path))
+            from httpx import ASGITransport, AsyncClient
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                await ac.post("/api/collection/load-local", json={"path": str(coll_path)})
+                resp = await ac.post("/api/test/start", json={"test_type": "burst", "config": {}})
+                run_id = resp.json()["run_id"]
+
+                await asyncio.sleep(0.1)
+
+                # Directly cancel the task (simulates watchdog)
+                from overload.web.routes.api import _state
+                task = _state.get("current_task")
+                if task and not task.done():
+                    task.cancel()
+
+                await asyncio.sleep(0.3)
+
+                data_resp = await ac.get(f"/api/runs/{run_id}/data")
+                data = data_resp.json()
+                assert data.get("status") == "stopped"

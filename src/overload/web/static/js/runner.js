@@ -422,11 +422,20 @@ window.RunnerPage = (function() {
       return;
     }
 
+    var selectedReqs = window.CollectionPage.getSelectedIndices();
+    if (selectedReqs !== null && selectedReqs.length === 0) {
+      App.toast('Select at least one request to run', 'error');
+      return;
+    }
+
     var payload = {
       test_type: selectedType,
       config: config,
       thresholds: thresholds
     };
+    if (selectedReqs !== null) {
+      payload.selected_requests = selectedReqs;
+    }
 
     fetch('/api/test/start', {
       method: 'POST',
@@ -442,7 +451,7 @@ window.RunnerPage = (function() {
         logEntries = [];
         lastLogIdx = -1;
         prevProgress = { completed: 0, time: Date.now() };
-        showLiveDashboard();
+        showLiveDashboard(selectedReqs, coll.requests.length);
         startElapsedTimer();
         window.OverloadApp.subscribeToRun(currentRunId, onProgress);
       } else {
@@ -452,11 +461,15 @@ window.RunnerPage = (function() {
     .catch(function(err) { App.toast('Failed to start: ' + err.message, 'error'); });
   }
 
-  function showLiveDashboard() {
+  function showLiveDashboard(selectedReqs, totalReqs) {
     document.getElementById('testConfig').style.display = 'none';
     document.getElementById('testTypes').style.display = 'none';
     var dash = document.getElementById('liveDashboard');
     dash.style.display = 'block';
+    var runningLabel = selectedType.toUpperCase();
+    if (selectedReqs !== null && selectedReqs !== undefined) {
+      runningLabel += ' — ' + selectedReqs.length + ' of ' + totalReqs + ' requests';
+    }
     var isRateLimit = selectedType === 'ratelimit';
     var phaseInfoHtml = isRateLimit
       ? '<div id="rlPhaseInfo" class="rl-phase-info" style="background:var(--card-bg,#fff);border:1px solid var(--border,#dde1ec);border-radius:8px;padding:14px 18px;margin-bottom:14px">' +
@@ -466,7 +479,7 @@ window.RunnerPage = (function() {
       : '';
     dash.innerHTML =
       '<div class="card">' +
-        '<div class="card-title">Running: ' + selectedType.toUpperCase() + ' — ' + currentRunId + '</div>' +
+        '<div class="card-title">Running: ' + runningLabel + ' — ' + currentRunId + '</div>' +
         phaseInfoHtml +
         '<div class="kpi-grid" id="liveKpis">' +
           '<div class="kpi kpi-mid"><div class="kpi-label">Total</div><div class="kpi-value" id="kpiTotal">0</div></div>' +

@@ -1,6 +1,7 @@
 window.CollectionPage = (function() {
   var collection = null;
   var selectedRequest = null;
+  var selectedIndices = null; // null = all selected; Set<number> = explicit subset
 
   function render(container) {
     container.innerHTML =
@@ -193,12 +194,22 @@ window.CollectionPage = (function() {
     var detected = document.getElementById('detectedFiles');
     if (detected) detected.style.display = 'none';
 
+    selectedIndices = null; // reset to all-selected on new collection load
+
     var view = document.getElementById('collectionView');
     view.style.display = 'block';
+
+    var selectionHtml =
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
+        '<button class="btn btn-secondary" id="selectAllBtn" style="padding:2px 8px;font-size:11px">All</button>' +
+        '<button class="btn btn-secondary" id="selectNoneBtn" style="padding:2px 8px;font-size:11px">None</button>' +
+        '<span id="selectionCount" style="color:var(--mut);font-size:11px">' + collection.requests.length + ' of ' + collection.requests.length + ' selected</span>' +
+      '</div>';
 
     var html =
       '<div class="card">' +
         '<div class="card-title">' + esc(collection.name) + ' (' + collection.requests.length + ' requests)</div>' +
+        selectionHtml +
         '<div class="tree" id="collectionTree">' + renderTree(collection.requests) + '</div>' +
       '</div>';
 
@@ -227,11 +238,60 @@ window.CollectionPage = (function() {
     view.innerHTML = html;
 
     view.querySelectorAll('.tree-request').forEach(function(el) {
-      el.addEventListener('click', function() {
+      el.addEventListener('click', function(e) {
+        if (e.target.classList.contains('req-checkbox')) return;
         var idx = parseInt(el.dataset.idx);
         showRequestDetail(idx);
       });
     });
+
+    view.querySelectorAll('.req-checkbox').forEach(function(cb) {
+      cb.addEventListener('change', function(e) {
+        e.stopPropagation();
+        var idx = parseInt(cb.dataset.idx);
+        initSelectedIndices();
+        if (cb.checked) selectedIndices.add(idx);
+        else selectedIndices.delete(idx);
+        updateFolderCheckbox(cb);
+        updateSelectionCount();
+      });
+    });
+
+    view.querySelectorAll('.folder-checkbox').forEach(function(fcb) {
+      fcb.addEventListener('change', function(e) {
+        e.stopPropagation();
+        initSelectedIndices();
+        var folderEl = fcb.closest('.tree-folder');
+        folderEl.querySelectorAll('.req-checkbox').forEach(function(cb) {
+          var idx = parseInt(cb.dataset.idx);
+          cb.checked = fcb.checked;
+          if (fcb.checked) selectedIndices.add(idx);
+          else selectedIndices.delete(idx);
+        });
+        updateSelectionCount();
+      });
+    });
+
+    var selectAllBtn = document.getElementById('selectAllBtn');
+    if (selectAllBtn) {
+      selectAllBtn.addEventListener('click', function() {
+        selectedIndices = null;
+        view.querySelectorAll('.req-checkbox').forEach(function(cb) { cb.checked = true; });
+        view.querySelectorAll('.folder-checkbox').forEach(function(fcb) { fcb.checked = true; fcb.indeterminate = false; });
+        updateSelectionCount();
+      });
+    }
+
+    var selectNoneBtn = document.getElementById('selectNoneBtn');
+    if (selectNoneBtn) {
+      selectNoneBtn.addEventListener('click', function() {
+        initSelectedIndices();
+        selectedIndices.clear();
+        view.querySelectorAll('.req-checkbox').forEach(function(cb) { cb.checked = false; });
+        view.querySelectorAll('.folder-checkbox').forEach(function(fcb) { fcb.checked = false; fcb.indeterminate = false; });
+        updateSelectionCount();
+      });
+    }
 
     view.querySelectorAll('.var-input').forEach(function(input) {
       input.addEventListener('change', function() {
@@ -257,6 +317,34 @@ window.CollectionPage = (function() {
     });
   }
 
+  function initSelectedIndices() {
+    if (selectedIndices === null) {
+      selectedIndices = new Set();
+      for (var i = 0; i < collection.requests.length; i++) selectedIndices.add(i);
+    }
+  }
+
+  function updateSelectionCount() {
+    var el = document.getElementById('selectionCount');
+    if (!el) return;
+    var total = collection.requests.length;
+    var count = selectedIndices === null ? total : selectedIndices.size;
+    el.textContent = count + ' of ' + total + ' selected';
+  }
+
+  function updateFolderCheckbox(changedCb) {
+    var folderEl = changedCb.closest('.tree-folder');
+    if (!folderEl) return;
+    var fcb = folderEl.querySelector('.folder-checkbox');
+    if (!fcb) return;
+    var cbs = folderEl.querySelectorAll('.req-checkbox');
+    var checkedCount = 0;
+    cbs.forEach(function(cb) { if (cb.checked) checkedCount++; });
+    if (checkedCount === 0) { fcb.checked = false; fcb.indeterminate = false; }
+    else if (checkedCount === cbs.length) { fcb.checked = true; fcb.indeterminate = false; }
+    else { fcb.checked = false; fcb.indeterminate = true; }
+  }
+
   function renderTree(requests) {
     var folders = {};
     var rootRequests = [];
@@ -277,7 +365,10 @@ window.CollectionPage = (function() {
       var folder = folders[key];
       var name = folder.path[folder.path.length - 1];
       html += '<div class="tree-folder">';
-      html += '<div class="tree-folder-name"><span class="tree-folder-icon">&#9660;</span> ' + esc(name) + '</div>';
+      html += '<div class="tree-folder-name">';
+      html += '<input type="checkbox" class="folder-checkbox" checked style="margin-right:4px;cursor:pointer" onclick="event.stopPropagation()">';
+      html += '<span class="tree-folder-icon">&#9660;</span> ' + esc(name);
+      html += '</div>';
       html += '<div class="tree-children">';
       folder.requests.forEach(function(item) {
         html += renderRequestItem(item.req, item.idx);
@@ -293,7 +384,9 @@ window.CollectionPage = (function() {
   }
 
   function renderRequestItem(req, idx) {
+    var isChecked = selectedIndices === null || selectedIndices.has(idx);
     return '<div class="tree-request" data-idx="' + idx + '">' +
+      '<input type="checkbox" class="req-checkbox" data-idx="' + idx + '"' + (isChecked ? ' checked' : '') + ' style="margin-right:6px;cursor:pointer" onclick="event.stopPropagation()">' +
       '<span class="method-badge method-' + req.method + '">' + req.method + '</span>' +
       '<span>' + esc(req.name) + '</span>' +
     '</div>';
@@ -340,5 +433,10 @@ window.CollectionPage = (function() {
 
   function getCollection() { return collection; }
 
-  return { render: render, getCollection: getCollection };
+  function getSelectedIndices() {
+    if (selectedIndices === null) return null;
+    return Array.from(selectedIndices).sort(function(a, b) { return a - b; });
+  }
+
+  return { render: render, getCollection: getCollection, getSelectedIndices: getSelectedIndices };
 })();

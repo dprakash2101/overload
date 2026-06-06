@@ -89,7 +89,7 @@ window.OverloadApp = (function() {
 
         var html = '<div class="card"><table class="runs-table"><thead><tr><th>Run ID</th><th>Test Type</th><th>Status</th><th>Verdict</th><th>Total</th><th>Success</th><th>Errors</th><th>Avg RPS</th><th>Actions</th></tr></thead><tbody>';
         runs.reverse().forEach(function(run) {
-          var statusClass = run.status === 'complete' ? 'complete' : run.status === 'error' ? 'error' : 'running';
+          var statusClass = run.status === 'complete' ? 'complete' : run.status === 'stopped' ? 'complete' : run.status === 'error' ? 'error' : 'running';
           var verdictBadge = '-';
           if (run.verdict === true) verdictBadge = '<span class="verdict-badge verdict-badge-pass">PASS</span>';
           else if (run.verdict === false) verdictBadge = '<span class="verdict-badge verdict-badge-fail">FAIL</span>';
@@ -103,7 +103,7 @@ window.OverloadApp = (function() {
             '<td>' + (run.errors || '-') + '</td>' +
             '<td>' + (run.avg_rps || '-') + '</td>' +
             '<td>';
-          if (run.status === 'complete') {
+          if (run.status === 'complete' || run.status === 'stopped') {
             html += '<a href="/api/runs/' + run.run_id + '/report" target="_blank" class="btn btn-secondary" style="padding:4px 10px;font-size:11px">HTML Report</a> ';
             html += '<button class="btn btn-secondary view-details" data-run="' + run.run_id + '" style="padding:4px 10px;font-size:11px">Details</button>';
           }
