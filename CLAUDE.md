@@ -16,20 +16,59 @@ overload run --collection path/to/collection.json --pattern burst  # CLI mode
 
 ```
 src/overload/           # Main package (src layout)
-  collection/           # Postman collection parsing (parser, models, variables, environment)
-  engine/               # Test execution (http_client, load_patterns, runner, rate_limiter, events)
+  collection/           # Postman collection parsing
+    data_source.py      # CSV data-driven testing (DataSource, VariableContext.derive)
+    environment.py      # Postman environment file parsing
+    models.py           # ParsedCollection, ParsedRequest, AuthConfig, etc.
+    parser.py           # Collection JSON → ParsedCollection
+    variables.py        # VariableContext — scope-chain variable resolution
+  engine/               # Test execution
+    assertions.py       # Threshold expressions + JUnit XML
+    auth.py             # OAuth2 pre-run token acquisition
+    http_client.py      # Async httpx wrapper; CSV row cycling
+    load_patterns.py    # All load patterns (Burst, Load, Stress, Spike, Soak, Ramp, Breakpoint, Custom)
+    models.py           # PatternConfig, Stats, RunProgress, RequestResult, Threshold, etc.
+    rate_limiter.py     # Rate-limit validation pattern
+    runner.py           # Sequential runner
+    service.py          # Shared run orchestration used by web API and MCP server
+  mcp_server.py         # MCP server (stdio) — all MCP tool logic lives here
   report/               # HTML report generation + CSV/JSON export
-    templates/           # Jinja2 templates, CSS, JS for reports
+    templates/          # Jinja2 templates, CSS, JS for reports
   web/                  # FastAPI browser UI
-    routes/             # API endpoints + WebSocket
+    routes/
+      api.py            # REST API endpoints (delegates run execution to engine/service.py)
+      ws.py             # WebSocket broadcast
     static/css/         # UI stylesheets
-    static/js/          # Vanilla JS frontend (app, collection, runner, charts)
+    static/js/          # Vanilla JS frontend (app, collection, runner, charts, docs)
     templates/          # index.html SPA shell
+  config_file.py        # overload.config.yaml read/write
   utils/                # Naming, timestamps
-  cli.py                # CLI entry point
+  cli.py                # CLI entry point (overload, overload run, overload sequential, overload mcp)
 tests/                  # Unit tests (pytest)
   fixtures/             # Sample Postman collections for tests
 ```
+
+## File Naming Convention
+
+**Feature code must live in files whose name reflects the feature.** This makes debugging
+and navigation fast — you always know exactly which file to open.
+
+| Feature / domain | File prefix / name |
+|------------------|--------------------|
+| MCP server tools | `mcp_*.py` — e.g. `mcp_server.py`, `mcp_utils.py` |
+| Rate-limit logic | `rate_limit*.py` — e.g. `rate_limiter.py`, `rate_limit_utils.py` |
+| Load patterns    | `load_patterns.py` (single file; new pattern families get `load_*.py`) |
+| Auth flows       | `auth*.py` |
+| Data / CSV       | `data_source.py`, `data_*.py` |
+| Report output    | `report/*.py` (inside the `report/` package) |
+
+The general rule: **if a file is hard to find by name alone, rename it**. Never lump
+unrelated features into a generic `utils.py` or `helpers.py`. The engine service
+(`engine/service.py`) is an intentional exception — it is shared orchestration plumbing,
+not a named feature.
+
+Test files follow the same pattern: `test_rate_limiter.py` tests `rate_limiter.py`,
+`test_mcp_server.py` tests `mcp_server.py`, etc.
 
 ## Tech Stack
 

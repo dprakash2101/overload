@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "overload-cli"
-version = "0.2.1"
+version = "0.3.0"
 description = "Free load testing tool that reads Postman collections — browser UI + CLI"
 readme = "README.md"
 license = "MIT"
@@ -42,6 +42,9 @@ dev = [
     "pytest-asyncio>=0.21",
     "build",
     "twine",
+]
+mcp = [
+    "mcp>=1.0",
 ]
 
 [project.scripts]

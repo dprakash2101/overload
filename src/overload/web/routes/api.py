@@ -16,14 +16,8 @@ from overload.collection.models import ParsedCollection
 from overload.collection.parser import parse_collection
 from overload.collection.variables import VariableContext
 from overload.config_file import extract_config, extract_test_type, extract_thresholds, load_config, save_config
-from overload.engine.assertions import evaluate, print_verdict, write_junit_xml
-from overload.engine.http_client import HttpClient
-from overload.engine.load_patterns import get_pattern
-from overload.engine.models import PatternConfig, RunProgress, Stats, TestType, Threshold
-from overload.engine.rate_limiter import run_rate_limit_test
-from overload.engine.runner import run_sequential
-from overload.report.exporters import export_csv, export_json
-from overload.report.generator import generate_report
+from overload.engine import service as _engine_service
+from overload.engine.models import PatternConfig, RunProgress, Threshold
 from overload.utils.naming import generate_run_id
 
 logger = logging.getLogger(__name__)
@@ -35,9 +29,9 @@ _state: dict[str, Any] = {
     "environment": None,
     "variables": None,
     "data_source": None,
-    "runs": {},
     "current_task": None,
     "cancel_event": None,
+    "current_run_id": None,
     "working_dir": os.getcwd(),
 }
 
@@ -355,135 +349,22 @@ async def start_test(body: dict) -> JSONResponse:
         await broadcast_progress(run_id, progress)
 
     async def _run_test() -> None:
-        stats = Stats()
-        ramp_rows: list[dict] = []
-
-        try:
-            async with HttpClient(
-                timeout=config.timeout_seconds,
-                verify_ssl=config.verify_ssl,
-                follow_redirects=config.follow_redirects,
-                max_connections=config.concurrency * 2,
-                save_responses=config.save_responses,
-                data_source=data_source,
-            ) as client:
-                await client.prepare_collection_auth(collection.auth, variables)
-                if test_type == TestType.SEQUENTIAL:
-                    results = await run_sequential(
-                        client, requests, variables, config,
-                        run_id, cancel_event, on_progress,
-                    )
-                    stats.add_all(results)
-                elif test_type == TestType.RATE_LIMIT:
-                    results, ramp_rows = await run_rate_limit_test(
-                        client, requests, variables, config,
-                        run_id, cancel_event, on_progress,
-                    )
-                    stats.add_all(results)
-                else:
-                    pattern = get_pattern(test_type)
-                    results = await pattern.execute(
-                        client, requests, variables, config,
-                        run_id, cancel_event, on_progress,
-                    )
-                    stats.add_all(results)
-
-            stopped = cancel_event.is_set()
-            computed = stats.compute()
-
-            verdict_data = None
-            if thresholds and computed and not stopped:
-                verdict = evaluate(computed, thresholds)
-                verdict_data = {
-                    "passed": verdict.passed,
-                    "results": [
-                        {
-                            "metric": r.metric,
-                            "operator": r.operator,
-                            "expected": r.expected,
-                            "actual": round(r.actual, 2),
-                            "passed": r.passed,
-                        }
-                        for r in verdict.results
-                    ],
-                }
-
-            report_config = {
-                "test_type": test_type,
-                "concurrency": config.concurrency,
-                "total_requests_configured": config.total_requests,
-            }
-            report_path: str | None = None
-            if computed:
-                report_path = generate_report(
-                    stats, test_type, report_config,
-                    run_id=run_id, ramp_rows=ramp_rows,
-                    output_dir=output_dir,
-                    verdict=verdict_data,
-                )
-
-            run_status = "stopped" if stopped else "complete"
-            _state["runs"][run_id] = {
-                "run_id": run_id,
-                "test_type": test_type,
-                "stats": computed,
-                "ramp_rows": ramp_rows,
-                "report_path": report_path,
-                "status": run_status,
-                "verdict": verdict_data,
-            }
-
-            phase = "complete (stopped)" if stopped else "complete"
-            await broadcast_progress(run_id, RunProgress(
-                run_id=run_id,
-                total_requests=stats.total,
-                completed_requests=stats.total,
-                current_rps=0,
-                phase=phase,
-                elapsed_seconds=computed["duration_seconds"] if computed else 0,
-            ))
-            logger.info("Test %s: %s (%d requests)", run_status, run_id, stats.total)
-
-        except asyncio.CancelledError:
-            logger.info("Test hard-cancelled: %s", run_id)
-            computed = stats.compute() if stats.total > 0 else None
-            report_path = None
-            if computed:
-                try:
-                    report_config = {
-                        "test_type": test_type,
-                        "concurrency": config.concurrency,
-                        "total_requests_configured": config.total_requests,
-                    }
-                    report_path = generate_report(
-                        stats, test_type, report_config,
-                        run_id=run_id, ramp_rows=ramp_rows,
-                        output_dir=output_dir,
-                    )
-                except Exception:
-                    logger.exception("Report generation failed after hard cancel: %s", run_id)
-            _state["runs"][run_id] = {
-                "run_id": run_id,
-                "test_type": test_type,
-                "stats": computed,
-                "ramp_rows": ramp_rows,
-                "report_path": report_path,
-                "status": "stopped",
-            }
-            await broadcast_progress(run_id, RunProgress(
-                run_id=run_id,
-                total_requests=stats.total,
-                completed_requests=stats.total,
-                current_rps=0,
-                phase="complete (stopped)",
-                elapsed_seconds=computed["duration_seconds"] if computed else 0,
-            ))
-        except Exception:
-            logger.exception("Test failed: %s", run_id)
-            _state["runs"][run_id] = {"run_id": run_id, "status": "error"}
+        result = await _engine_service.run_test(
+            collection, test_type, config,
+            variables=variables,
+            requests=requests,
+            thresholds=thresholds,
+            data_source=data_source,
+            output_dir=output_dir,
+            run_id=run_id,
+            on_progress=on_progress,
+            cancel_event=cancel_event,
+        )
+        logger.info("Test %s: %s", result.status, run_id)
 
     task = asyncio.create_task(_run_test())
     _state["current_task"] = task
+    _state["current_run_id"] = run_id
 
     return JSONResponse({"status": "ok", "run_id": run_id})
 
@@ -508,7 +389,7 @@ async def stop_test() -> JSONResponse:
 @router.get("/runs")
 async def list_runs() -> JSONResponse:
     runs = []
-    for run_id, run_data in _state["runs"].items():
+    for run_id, run_data in _engine_service._runs.items():
         summary = {
             "run_id": run_id,
             "test_type": run_data.get("test_type", ""),
@@ -530,7 +411,7 @@ async def list_runs() -> JSONResponse:
 
 @router.get("/runs/{run_id}/data")
 async def get_run_data(run_id: str) -> JSONResponse:
-    run_data = _state["runs"].get(run_id)
+    run_data = _engine_service.get_run(run_id)
     if not run_data:
         return JSONResponse({"status": "error", "message": "Run not found"}, status_code=404)
     return JSONResponse(run_data)
@@ -538,7 +419,7 @@ async def get_run_data(run_id: str) -> JSONResponse:
 
 @router.get("/runs/{run_id}/report")
 async def get_run_report(run_id: str) -> FileResponse:
-    run_data = _state["runs"].get(run_id)
+    run_data = _engine_service.get_run(run_id)
     if not run_data or not run_data.get("report_path"):
         return JSONResponse({"status": "error", "message": "Report not found"}, status_code=404)
     return FileResponse(run_data["report_path"], media_type="text/html")
@@ -546,7 +427,7 @@ async def get_run_report(run_id: str) -> FileResponse:
 
 @router.get("/runs/{run_id}/export/csv")
 async def export_run_csv(run_id: str) -> JSONResponse:
-    run_data = _state["runs"].get(run_id)
+    run_data = _engine_service.get_run(run_id)
     if not run_data:
         return JSONResponse({"status": "error", "message": "Run not found"}, status_code=404)
     return JSONResponse({"status": "error", "message": "CSV export requires stored results"}, status_code=501)
@@ -554,7 +435,7 @@ async def export_run_csv(run_id: str) -> JSONResponse:
 
 @router.get("/runs/{run_id}/export/json")
 async def export_run_json(run_id: str) -> JSONResponse:
-    run_data = _state["runs"].get(run_id)
+    run_data = _engine_service.get_run(run_id)
     if not run_data:
         return JSONResponse({"status": "error", "message": "Run not found"}, status_code=404)
     return JSONResponse(run_data)

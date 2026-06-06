@@ -1,7 +1,77 @@
-# Changes Done — feat/report-on-stop-and-request-selection
+# Changes Done — feat/report-on-stop-and-request-selection + Feature 6 MCP
 
-Branch: `feat/report-on-stop-and-request-selection`
-Date: 2026-06-06
+Branch: `main`
+Last updated: 2026-06-06
+
+---
+
+## Feature 6 — MCP Server (Claude Code, Codex, GitHub Copilot)
+
+**Files created / modified:**
+- `src/overload/engine/service.py` — new file
+- `src/overload/mcp_server.py` — new file
+- `src/overload/web/routes/api.py` — delegated run orchestration to `service.py`
+- `src/overload/cli.py` — added `overload mcp` subcommand
+- `pyproject.toml` — added `mcp = ["mcp>=1.0"]` optional extra; bumped version to `0.3.0`
+- `tests/test_mcp_server.py` — new file, 18 tests
+- `tests/test_api.py` — updated two patches from `api.get_pattern` → `service.get_pattern`
+- `CLAUDE.md` — updated project structure; added file-naming convention
+
+### `engine/service.py` (new)
+
+Extracted the run orchestration that was previously inline in `api.py`'s `_run_test()` closure into a reusable shared service. Both the web API and the MCP server now call this.
+
+- `RunResult` dataclass — `run_id`, `test_type`, `status`, `stats`, `report_path`, `verdict`, `ramp_rows`.
+- Module-level registries: `_runs` (results), `_tasks` (asyncio Tasks), `_cancel_events`, `_progress` (latest RunProgress per run).
+- `async run_test(collection, test_type, config, *, variables, requests, thresholds, data_source, output_dir, run_id, on_progress, cancel_event)` — full orchestration: HttpClient → pattern dispatch → Stats.compute → assertions → report generation → final progress broadcast. Handles CancelledError (hard cancel) and Exception paths; always stores in `_runs`.
+- `async start_run(...)` → creates asyncio Task, stores in `_tasks`, returns `run_id` immediately (for MCP).
+- `get_run(run_id)` → lookup.
+- `get_latest_progress(run_id)` → latest `RunProgress` stored per run (used by MCP `get_run_status`).
+- `async stop_run(run_id)` → sets cancel event + 10-second watchdog.
+- `is_running(run_id)` → bool.
+
+### `mcp_server.py` (new)
+
+All MCP tool definitions in one `mcp_`-prefixed file (per project naming convention).
+
+**Six tools registered with FastMCP (stdio transport):**
+- `list_patterns()` — returns all 10 test types with descriptions.
+- `describe_collection(path)` — parses a Postman collection; returns request list and detected `{{placeholders}}`.
+- `run_load_test(...)` — starts a test, returns `run_id` immediately. Guardrails: `concurrency` capped at 200, `total_requests` at 10 000.
+- `get_run_status(run_id)` — polls phase, completed_requests, elapsed.
+- `get_run_results(run_id)` — final summary (p50/p95/p99, RPS, error rate), verdict, report path.
+- `stop_run(run_id)` — graceful stop with partial report.
+
+**Multi-client support (all use the same MCP stdio protocol):**
+- Claude Code: `claude mcp add overload -- overload mcp`
+- Codex CLI: `codex mcp add overload -- overload mcp`
+- GitHub Copilot: VS Code `settings.json` → `"mcpServers": {"overload": {"command": "overload", "args": ["mcp"]}}`
+
+### `cli.py` changes
+
+- New `overload mcp` subcommand that runs `mcp_server.main()`.
+- Prints multi-client registration instructions on start.
+
+### `api.py` changes
+
+- Removed inline test orchestration from `_run_test()` closure — now calls `service.run_test()`.
+- Removed `_state["runs"]` — run data lives in `service._runs`.
+- Added `_state["current_run_id"]` for `stop_test` bookkeeping.
+- All run-data routes (`/api/runs`, `/api/runs/{id}/data`, `/api/runs/{id}/report`, export routes) read from `service._runs` / `service.get_run()`.
+- Reduced imports significantly (get_pattern, Stats, HttpClient, generate_report, etc. removed from api.py).
+
+### Tests (`tests/test_mcp_server.py`)
+
+18 new tests — total suite now 218, all passing.
+
+**Coverage:**
+- `TestListPatterns` — all 10 types present, shape check.
+- `TestDescribeCollection` — name, request count, placeholder detection, missing file error.
+- `TestRunLoadTest` — missing collection, empty selection, bad assertion, concurrency cap, returns run_id.
+- `TestGetRunStatus` — missing run, running/complete status, progress included.
+- `TestGetRunResults` — missing, still-running error, complete with stats, verdict included.
+- `TestStopRun` — missing run error, completed run returns ok.
+- `TestServiceRunTest` — happy path stores result and populates `service._runs`; cancel_event produces `stopped` status.
 
 ---
 

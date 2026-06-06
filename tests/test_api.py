@@ -246,7 +246,7 @@ class TestStopGeneratesReport:
         coll_path = tmp_path / "coll.json"
         coll_path.write_text(json.dumps(collection))
 
-        with patch("overload.web.routes.api.get_pattern", return_value=mock_pattern):
+        with patch("overload.engine.service.get_pattern", return_value=mock_pattern):
             app = create_app(working_dir=str(tmp_path))
             from httpx import ASGITransport, AsyncClient
 
@@ -291,7 +291,7 @@ class TestStopGeneratesReport:
         mock_pattern = AsyncMock()
         mock_pattern.execute.side_effect = fake_execute_hang
 
-        with patch("overload.web.routes.api.get_pattern", return_value=mock_pattern):
+        with patch("overload.engine.service.get_pattern", return_value=mock_pattern):
             app = create_app(working_dir=str(tmp_path))
             from httpx import ASGITransport, AsyncClient
 

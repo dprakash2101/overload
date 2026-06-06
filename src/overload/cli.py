@@ -70,6 +70,12 @@ def main() -> None:
     seq_parser.add_argument("--output", default=".", help="Output directory")
     seq_parser.add_argument("--timeout", type=float, default=30.0, help="Request timeout in seconds")
 
+    # MCP command
+    subparsers.add_parser(
+        "mcp",
+        help="Start the MCP server (stdio) for Claude Code, Codex, and GitHub Copilot",
+    )
+
     args = parser.parse_args()
 
     _setup_logging(args.debug if hasattr(args, "debug") else False)
@@ -78,8 +84,15 @@ def main() -> None:
         asyncio.run(_run_test(args))
     elif args.command == "sequential":
         asyncio.run(_run_sequential(args))
+    elif args.command == "mcp":
+        _start_mcp()
     else:
         _start_ui(args)
+
+
+def _start_mcp() -> None:
+    from overload.mcp_server import main as mcp_main
+    mcp_main()
 
 
 def _setup_logging(debug: bool) -> None:
