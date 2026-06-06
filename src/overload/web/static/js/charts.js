@@ -86,11 +86,22 @@ window.OverloadCharts = (function() {
     var labels = Object.keys(statusCodes).sort(function(a, b) { return Number(a) - Number(b); });
     var values = labels.map(function(k) { return statusCodes[k]; });
     var bgColors = labels.map(function(k) { return statusColor(Number(k)); });
+
+    var existing = chartInstances[id];
+    if (existing && existing.data) {
+      existing.data.labels = labels;
+      existing.data.datasets[0].data = values;
+      existing.data.datasets[0].backgroundColor = bgColors;
+      existing.update('none');
+      return;
+    }
+
     createChart(id, {
       type: 'doughnut',
       data: { labels: labels, datasets: [{ data: values, backgroundColor: bgColors, borderWidth: 1, borderColor: '#fff', hoverOffset: 4 }] },
       options: {
         responsive: true, maintainAspectRatio: false, cutout: '65%',
+        animation: false,
         plugins: { legend: { position: 'right', labels: { color: colors.text, padding: 10 } } }
       }
     });

@@ -15,7 +15,6 @@ from overload.engine.models import (
     RequestDistribution,
     RequestResult,
     RunProgress,
-    Stats,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,6 +56,8 @@ async def _fire_one(
 
 
 _last_emit_state: dict[str, tuple[int, float]] = {}
+_last_emit_time: dict[str, float] = {}
+_MIN_EMIT_INTERVAL = 0.5
 
 
 async def _emit_progress(
@@ -66,18 +67,26 @@ async def _emit_progress(
     total: int,
     phase: str,
     start_time: float,
+    force: bool = False,
 ) -> None:
     if callback is None:
         return
 
-    elapsed = time.monotonic() - start_time
+    now = time.monotonic()
+    if not force:
+        last = _last_emit_time.get(run_id, 0.0)
+        if now - last < _MIN_EMIT_INTERVAL:
+            return
+    _last_emit_time[run_id] = now
+
+    elapsed = now - start_time
     completed = len(results)
 
     prev_count, prev_time = _last_emit_state.get(run_id, (0, start_time))
-    dt = time.monotonic() - prev_time
+    dt = now - prev_time
     dr = completed - prev_count
     instant_rps = round(dr / max(dt, 0.1), 1) if dt > 0.05 else 0.0
-    _last_emit_state[run_id] = (completed, time.monotonic())
+    _last_emit_state[run_id] = (completed, now)
 
     status_codes: dict[int, int] = {}
     total_latency = 0.0
@@ -127,6 +136,13 @@ async def _cancel_tasks(tasks: list[asyncio.Task]) -> None:
     await asyncio.gather(*tasks, return_exceptions=True)
 
 
+def _safe_done_callback(results: list[RequestResult]):
+    def _cb(t: asyncio.Task) -> None:
+        if not t.cancelled() and t.exception() is None:
+            results.append(t.result())
+    return _cb
+
+
 class BurstPattern:
     async def execute(
         self,
@@ -145,7 +161,7 @@ class BurstPattern:
 
         logger.info("Burst: %d requests, concurrency=%d", n, config.concurrency)
 
-        await _emit_progress(on_progress, run_id, results, n, "Preparing burst...", start_time)
+        await _emit_progress(on_progress, run_id, results, n, "Preparing burst...", start_time, force=True)
 
         tasks = [
             asyncio.create_task(
@@ -159,17 +175,18 @@ class BurstPattern:
             for i in range(n)
         ]
 
-        await _emit_progress(on_progress, run_id, results, n, f"Firing {n} requests...", start_time)
+        await _emit_progress(on_progress, run_id, results, n, f"Firing {n} requests...", start_time, force=True)
 
-        progress_interval = max(n // 20, 1)
-        for i, coro in enumerate(asyncio.as_completed(tasks)):
+        for coro in asyncio.as_completed(tasks):
             if cancel_event.is_set():
                 await _cancel_tasks(tasks)
                 break
-            result = await coro
-            results.append(result)
-            if (i + 1) % progress_interval == 0 or i == n - 1:
-                await _emit_progress(on_progress, run_id, results, n, "running", start_time)
+            try:
+                result = await coro
+                results.append(result)
+            except Exception:
+                pass
+            await _emit_progress(on_progress, run_id, results, n, "running", start_time)
 
         return results
 
@@ -201,7 +218,7 @@ class RampPattern:
 
         logger.info("Ramp: %d -> %d req/s, step=%d, step_duration=%ds", start_rps, end_rps, step, step_dur)
 
-        await _emit_progress(on_progress, run_id, all_results, total_estimate, "Preparing ramp test...", start_time)
+        await _emit_progress(on_progress, run_id, all_results, total_estimate, "Preparing ramp test...", start_time, force=True)
 
         for rps in range(start_rps, end_rps + 1, step):
             if cancel_event.is_set():
@@ -220,20 +237,25 @@ class RampPattern:
                     await asyncio.sleep(delay)
                 req = _pick_request(requests, request_idx, config.distribution)
                 request_idx += 1
-                batch_tasks.append(
-                    asyncio.create_task(_fire_one(client, req, variables, sem))
-                )
+                task = asyncio.create_task(_fire_one(client, req, variables, sem))
+                task.add_done_callback(_safe_done_callback(all_results))
+                batch_tasks.append(task)
+                await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time)
 
             if cancel_event.is_set():
                 await _cancel_tasks(batch_tasks)
                 break
 
-            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
-            for r in batch_results:
-                if isinstance(r, RequestResult):
-                    all_results.append(r)
+            pending = [t for t in batch_tasks if not t.done()]
+            if pending:
+                for coro in asyncio.as_completed(pending):
+                    try:
+                        await coro
+                    except Exception:
+                        pass
+                    await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time)
 
-            await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time)
+            await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time, force=True)
 
         return all_results
 
@@ -259,7 +281,6 @@ class LoadTestPattern:
         start_time = time.monotonic()
         request_idx = 0
 
-        total_duration = ramp_up + hold + ramp_down
         total_estimate = int(target_rps * (ramp_up / 2 + hold + ramp_down / 2))
 
         logger.info(
@@ -267,7 +288,7 @@ class LoadTestPattern:
             target_rps, ramp_up, hold, ramp_down,
         )
 
-        await _emit_progress(on_progress, run_id, all_results, total_estimate, "Preparing load test...", start_time)
+        await _emit_progress(on_progress, run_id, all_results, total_estimate, "Preparing load test...", start_time, force=True)
 
         async def _run_at_rps(rps: int, duration: float, phase: str) -> None:
             nonlocal request_idx
@@ -285,13 +306,11 @@ class LoadTestPattern:
                 req = _pick_request(requests, request_idx, config.distribution)
                 request_idx += 1
                 task = asyncio.create_task(_fire_one(client, req, variables, sem))
-                task.add_done_callback(lambda t: all_results.append(t.result()) if not t.cancelled() and t.exception() is None else None)
+                task.add_done_callback(_safe_done_callback(all_results))
                 in_flight.append(task)
                 i += 1
-                if i % max(rps // 2, 1) == 0:
-                    await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time)
+                await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time)
 
-        # Ramp up
         if ramp_up > 0:
             steps = max(ramp_up, 1)
             for s in range(steps):
@@ -300,11 +319,9 @@ class LoadTestPattern:
                 current_rps = max(1, int(target_rps * (s + 1) / steps))
                 await _run_at_rps(current_rps, 1.0, f"Ramping up: {current_rps} req/s")
 
-        # Hold
         if not cancel_event.is_set():
             await _run_at_rps(target_rps, hold, f"Holding at {target_rps} req/s")
 
-        # Ramp down
         if ramp_down > 0 and not cancel_event.is_set():
             steps = max(ramp_down, 1)
             for s in range(steps):
@@ -318,9 +335,14 @@ class LoadTestPattern:
         else:
             pending = [t for t in in_flight if not t.done()]
             if pending:
-                await asyncio.gather(*pending, return_exceptions=True)
+                for coro in asyncio.as_completed(pending):
+                    try:
+                        await coro
+                    except Exception:
+                        pass
+                    await _emit_progress(on_progress, run_id, all_results, total_estimate, "Finishing...", start_time)
 
-        await _emit_progress(on_progress, run_id, all_results, total_estimate, "complete", start_time)
+        await _emit_progress(on_progress, run_id, all_results, total_estimate, "complete", start_time, force=True)
         return all_results
 
 
@@ -350,7 +372,7 @@ class StressPattern:
             start_rps, step, max_rps, config.failure_threshold_pct,
         )
 
-        await _emit_progress(on_progress, run_id, all_results, 0, "Preparing stress test...", start_time)
+        await _emit_progress(on_progress, run_id, all_results, 0, "Preparing stress test...", start_time, force=True)
 
         rps = start_rps
         breaking_point = 0
@@ -362,6 +384,7 @@ class StressPattern:
             phase = f"Stress: {rps} req/s"
             interval = 1.0 / rps
             batch_tasks: list[asyncio.Task] = []
+            step_results: list[RequestResult] = []
             batch_start = time.monotonic()
 
             for i in range(rps * step_dur):
@@ -372,17 +395,24 @@ class StressPattern:
                     await asyncio.sleep(delay)
                 req = _pick_request(requests, request_idx, config.distribution)
                 request_idx += 1
-                batch_tasks.append(
-                    asyncio.create_task(_fire_one(client, req, variables, sem))
-                )
+                task = asyncio.create_task(_fire_one(client, req, variables, sem))
+                task.add_done_callback(_safe_done_callback(step_results))
+                task.add_done_callback(_safe_done_callback(all_results))
+                batch_tasks.append(task)
+                await _emit_progress(on_progress, run_id, all_results, 0, phase, start_time)
 
             if cancel_event.is_set():
                 await _cancel_tasks(batch_tasks)
                 break
 
-            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
-            step_results = [r for r in batch_results if isinstance(r, RequestResult)]
-            all_results.extend(step_results)
+            pending = [t for t in batch_tasks if not t.done()]
+            if pending:
+                for coro in asyncio.as_completed(pending):
+                    try:
+                        await coro
+                    except Exception:
+                        pass
+                    await _emit_progress(on_progress, run_id, all_results, 0, phase, start_time)
 
             if step_results:
                 errors = sum(1 for r in step_results if r.status_code < 200 or r.status_code >= 400)
@@ -394,7 +424,7 @@ class StressPattern:
                     logger.info("Breaking point found at %d req/s (%.1f%% errors)", rps, error_rate * 100)
                     break
 
-            await _emit_progress(on_progress, run_id, all_results, 0, phase, start_time)
+            await _emit_progress(on_progress, run_id, all_results, 0, phase, start_time, force=True)
             rps += step
 
         if breaking_point == 0 and not cancel_event.is_set():
@@ -402,7 +432,7 @@ class StressPattern:
 
         await _emit_progress(
             on_progress, run_id, all_results, 0,
-            f"complete (breaking point: {breaking_point} req/s)", start_time,
+            f"complete (breaking point: {breaking_point} req/s)", start_time, force=True,
         )
         return all_results
 
@@ -435,7 +465,7 @@ class SpikePattern:
             baseline_rps, spike_rps, baseline_dur, spike_dur, recovery_dur,
         )
 
-        await _emit_progress(on_progress, run_id, all_results, total_estimate, "Preparing spike test...", start_time)
+        await _emit_progress(on_progress, run_id, all_results, total_estimate, "Preparing spike test...", start_time, force=True)
 
         async def _run_phase(rps: int, duration: float, phase: str) -> None:
             nonlocal request_idx
@@ -454,20 +484,26 @@ class SpikePattern:
                     await asyncio.sleep(delay)
                 req = _pick_request(requests, request_idx, config.distribution)
                 request_idx += 1
-                tasks.append(asyncio.create_task(_fire_one(client, req, variables, sem)))
+                task = asyncio.create_task(_fire_one(client, req, variables, sem))
+                task.add_done_callback(_safe_done_callback(all_results))
+                tasks.append(task)
                 i += 1
-                if i % max(rps, 1) == 0:
-                    await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time)
+                await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time)
 
             if cancel_event.is_set():
                 await _cancel_tasks(tasks)
                 return
 
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            for r in results:
-                if isinstance(r, RequestResult):
-                    all_results.append(r)
-            await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time)
+            pending = [t for t in tasks if not t.done()]
+            if pending:
+                for coro in asyncio.as_completed(pending):
+                    try:
+                        await coro
+                    except Exception:
+                        pass
+                    await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time)
+
+            await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time, force=True)
 
         await _run_phase(baseline_rps, baseline_dur, f"Baseline: {baseline_rps} req/s")
         if not cancel_event.is_set():
@@ -499,7 +535,7 @@ class SoakPattern:
 
         logger.info("Soak: %d req/s for %ds", rps, duration)
 
-        await _emit_progress(on_progress, run_id, all_results, total_estimate, "Preparing soak test...", start_time)
+        await _emit_progress(on_progress, run_id, all_results, total_estimate, "Preparing soak test...", start_time, force=True)
 
         interval = 1.0 / rps
         phase_start = time.monotonic()
@@ -515,25 +551,27 @@ class SoakPattern:
             req = _pick_request(requests, request_idx, config.distribution)
             request_idx += 1
             task = asyncio.create_task(_fire_one(client, req, variables, sem))
-            task.add_done_callback(
-                lambda t: all_results.append(t.result()) if not t.cancelled() and t.exception() is None else None
-            )
+            task.add_done_callback(_safe_done_callback(all_results))
             tasks.append(task)
             i += 1
 
-            if i % (rps * 5) == 0:
-                elapsed_min = (time.monotonic() - phase_start) / 60
-                phase = f"Soaking: {rps} req/s ({elapsed_min:.1f}m elapsed)"
-                await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time)
+            elapsed_min = (time.monotonic() - phase_start) / 60
+            phase = f"Soaking: {rps} req/s ({elapsed_min:.1f}m elapsed)"
+            await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time)
 
         if cancel_event.is_set():
             await _cancel_tasks(tasks)
         else:
             pending = [t for t in tasks if not t.done()]
             if pending:
-                await asyncio.gather(*pending, return_exceptions=True)
+                for coro in asyncio.as_completed(pending):
+                    try:
+                        await coro
+                    except Exception:
+                        pass
+                    await _emit_progress(on_progress, run_id, all_results, total_estimate, "Finishing soak...", start_time)
 
-        await _emit_progress(on_progress, run_id, all_results, total_estimate, "complete", start_time)
+        await _emit_progress(on_progress, run_id, all_results, total_estimate, "complete", start_time, force=True)
         return all_results
 
 
@@ -563,7 +601,7 @@ class BreakpointPattern:
             start_rps, precision, latency_threshold, config.error_threshold_pct,
         )
 
-        await _emit_progress(on_progress, run_id, all_results, 0, "Preparing breakpoint test...", start_time)
+        await _emit_progress(on_progress, run_id, all_results, 0, "Preparing breakpoint test...", start_time, force=True)
 
         low = start_rps
         high = max_rps
@@ -603,17 +641,18 @@ class BreakpointPattern:
 
             return p95, error_rate
 
-        # Binary search for breakpoint
         while high - low > precision:
             if cancel_event.is_set():
                 break
 
             mid = (low + high) // 2
             phase = f"Probing: {mid} req/s"
-            await _emit_progress(on_progress, run_id, all_results, 0, phase, start_time)
+            await _emit_progress(on_progress, run_id, all_results, 0, phase, start_time, force=True)
 
             p95, error_rate = await _probe(mid)
             logger.info("Probe %d req/s: p95=%.1fms, error_rate=%.1f%%", mid, p95, error_rate * 100)
+
+            await _emit_progress(on_progress, run_id, all_results, 0, phase, start_time, force=True)
 
             if p95 > latency_threshold or error_rate > error_threshold:
                 high = mid
@@ -628,7 +667,7 @@ class BreakpointPattern:
         await _emit_progress(
             on_progress, run_id, all_results, 0,
             f"complete (breakpoint: {breakpoint_rps} req/s, last good: {last_good} req/s)",
-            start_time,
+            start_time, force=True,
         )
         return all_results
 
@@ -660,7 +699,7 @@ class CustomPattern:
 
         logger.info("Custom: %d stages, estimated %d requests", len(stages), total_estimate)
 
-        await _emit_progress(on_progress, run_id, all_results, total_estimate, "Preparing custom test...", start_time)
+        await _emit_progress(on_progress, run_id, all_results, total_estimate, "Preparing custom test...", start_time, force=True)
 
         for stage_num, stage in enumerate(stages, 1):
             if cancel_event.is_set():
@@ -687,14 +726,10 @@ class CustomPattern:
                 req = _pick_request(requests, request_idx, config.distribution)
                 request_idx += 1
                 task = asyncio.create_task(_fire_one(client, req, variables, sem))
-                task.add_done_callback(
-                    lambda t: all_results.append(t.result()) if not t.cancelled() and t.exception() is None else None
-                )
+                task.add_done_callback(_safe_done_callback(all_results))
                 tasks.append(task)
                 i += 1
-
-                if i % max(rps, 1) == 0:
-                    await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time)
+                await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time)
 
             if cancel_event.is_set():
                 await _cancel_tasks(tasks)
@@ -702,11 +737,16 @@ class CustomPattern:
 
             pending = [t for t in tasks if not t.done()]
             if pending:
-                await asyncio.gather(*pending, return_exceptions=True)
+                for coro in asyncio.as_completed(pending):
+                    try:
+                        await coro
+                    except Exception:
+                        pass
+                    await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time)
 
-            await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time)
+            await _emit_progress(on_progress, run_id, all_results, total_estimate, phase, start_time, force=True)
 
-        await _emit_progress(on_progress, run_id, all_results, total_estimate, "complete", start_time)
+        await _emit_progress(on_progress, run_id, all_results, total_estimate, "complete", start_time, force=True)
         return all_results
 
 

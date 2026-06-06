@@ -48,6 +48,8 @@ tests/                  # Unit tests (pytest)
 - **Major changes require planning.** Any significant architectural change or new feature should be discussed and planned before implementation.
 - **PEP 8 compliance.** Follow PEP 8 style guidelines strictly.
 - **Lazy imports only when necessary.** Use module-level imports by default. Only use lazy imports when there's a concrete performance reason (e.g., heavy optional dependency in a rarely-used code path).
+- **Tests are required for every change.** Every new feature, bug fix, or behaviour change must include tests. New code must not lower test coverage. When a bug is fixed, add a regression test that would have caught it.
+- **Live dashboard is non-negotiable for interactive mode.** Every load pattern must emit progress updates at least every ~0.5 seconds during execution so the browser dashboard shows real-time metrics. This is enforced by the 0.5s throttle in `_emit_progress` and `add_done_callback`/`asyncio.as_completed` patterns in all patterns. CI/headless mode (no WebSocket subscriber) is exempt. When adding a new pattern or modifying an existing one, confirm it emits progress continuously — raise this during planning if the pattern's structure makes that non-trivial.
 
 ## Conventions
 

@@ -101,6 +101,7 @@ class TestRunPhase:
 
         results, next_idx = await _run_phase(
             AsyncMock(), [_request()], VariableContext(), sem, 5, cancel, 0,
+            None, "run-1", "Phase 1", [], 5, time.monotonic(),
         )
         assert len(results) == 5
         assert next_idx == 5
@@ -116,6 +117,7 @@ class TestRunPhase:
 
         _, next_idx = await _run_phase(
             AsyncMock(), [_request()], VariableContext(), sem, 3, cancel, 10,
+            None, "run-1", "Phase 1", [], 3, time.monotonic(),
         )
         assert next_idx == 13
 
@@ -128,6 +130,7 @@ class TestRunPhase:
 
         results, next_idx = await _run_phase(
             AsyncMock(), [_request()], VariableContext(), sem, 0, cancel, 0,
+            None, "run-1", "Phase 1", [], 0, time.monotonic(),
         )
         assert len(results) == 0
         assert next_idx == 0
@@ -152,6 +155,7 @@ class TestRunPhase:
 
         results, _ = await _run_phase(
             AsyncMock(), [_request()], VariableContext(), sem, 20, cancel, 0,
+            None, "run-1", "Phase 1", [], 20, time.monotonic(),
         )
         assert len(results) < 20
 
@@ -174,6 +178,7 @@ class TestRunPhase:
 
         results, _ = await _run_phase(
             AsyncMock(), [_request()], VariableContext(), sem, 5, cancel, 0,
+            None, "run-1", "Phase 1", [], 5, time.monotonic(),
         )
         assert len(results) == 4
 
@@ -482,3 +487,167 @@ class TestRateLimitCancellation:
         exceed = next(r for r in phase_data if r["phase"] == "exceed")
         assert steady["total"] == 0
         assert exceed["total"] == 0
+
+
+# ---------------------------------------------------------------------------
+# _run_phase — live progress during execution
+# ---------------------------------------------------------------------------
+
+class TestRunPhaseLiveProgress:
+    @pytest.mark.asyncio
+    @patch("overload.engine.rate_limiter._PHASE_DURATION", 0.05)
+    @patch("overload.engine.rate_limiter._fire_one", new_callable=AsyncMock)
+    async def test_emits_progress_during_phase(self, mock_fire: AsyncMock) -> None:
+        """Progress callback must be called at least once per request during the phase."""
+        mock_fire.return_value = _result(200)
+        sem = asyncio.Semaphore(10)
+        cancel = asyncio.Event()
+        progress_calls: list[RunProgress] = []
+
+        async def on_progress(p: RunProgress) -> None:
+            progress_calls.append(p)
+
+        await _run_phase(
+            AsyncMock(), [_request()], VariableContext(), sem, 5, cancel, 0,
+            on_progress, "run-live-1", "Phase 1", [], 5, time.monotonic(),
+        )
+
+        assert len(progress_calls) >= 1
+
+    @pytest.mark.asyncio
+    @patch("overload.engine.rate_limiter._PHASE_DURATION", 0.05)
+    @patch("overload.engine.rate_limiter._fire_one", new_callable=AsyncMock)
+    async def test_total_requests_unchanged_across_calls(self, mock_fire: AsyncMock) -> None:
+        """total_requests in progress must match the value passed in, not reset."""
+        mock_fire.return_value = _result(200)
+        sem = asyncio.Semaphore(10)
+        cancel = asyncio.Event()
+        totals_seen: list[int] = []
+
+        async def on_progress(p: RunProgress) -> None:
+            totals_seen.append(p.total_requests)
+
+        await _run_phase(
+            AsyncMock(), [_request()], VariableContext(), sem, 4, cancel, 0,
+            on_progress, "run-live-2", "Phase 1", [], 12, time.monotonic(),
+        )
+
+        assert all(t == 12 for t in totals_seen)
+
+    @pytest.mark.asyncio
+    @patch("overload.engine.rate_limiter._PHASE_DURATION", 0.05)
+    @patch("overload.engine.rate_limiter._fire_one", new_callable=AsyncMock)
+    async def test_progress_includes_prior_results(self, mock_fire: AsyncMock) -> None:
+        """completed_requests must include prior_results, not just current phase."""
+        mock_fire.return_value = _result(200)
+        sem = asyncio.Semaphore(10)
+        cancel = asyncio.Event()
+        prior = [_result(200), _result(200), _result(200)]
+        completed_seen: list[int] = []
+
+        async def on_progress(p: RunProgress) -> None:
+            completed_seen.append(p.completed_requests)
+
+        await _run_phase(
+            AsyncMock(), [_request()], VariableContext(), sem, 3, cancel, 0,
+            on_progress, "run-live-3", "Phase 1", prior, 6, time.monotonic(),
+        )
+
+        assert all(c >= len(prior) for c in completed_seen)
+
+    @pytest.mark.asyncio
+    @patch("overload.engine.rate_limiter._PHASE_DURATION", 0.05)
+    @patch("overload.engine.rate_limiter._fire_one", new_callable=AsyncMock)
+    async def test_progress_phase_label_contains_sent_count(self, mock_fire: AsyncMock) -> None:
+        """Phase label must include how many requests have been sent."""
+        mock_fire.return_value = _result(200)
+        sem = asyncio.Semaphore(10)
+        cancel = asyncio.Event()
+        phase_labels: list[str] = []
+
+        async def on_progress(p: RunProgress) -> None:
+            phase_labels.append(p.phase)
+
+        await _run_phase(
+            AsyncMock(), [_request()], VariableContext(), sem, 4, cancel, 0,
+            on_progress, "run-live-4", "My Phase", [], 4, time.monotonic(),
+        )
+
+        assert any("sent" in label for label in phase_labels)
+
+    @pytest.mark.asyncio
+    @patch("overload.engine.rate_limiter._PHASE_DURATION", 0.05)
+    @patch("overload.engine.rate_limiter._fire_one", new_callable=AsyncMock)
+    async def test_no_error_when_callback_is_none(self, mock_fire: AsyncMock) -> None:
+        """_run_phase must not raise when on_progress is None."""
+        mock_fire.return_value = _result(200)
+        sem = asyncio.Semaphore(10)
+        cancel = asyncio.Event()
+
+        results, _ = await _run_phase(
+            AsyncMock(), [_request()], VariableContext(), sem, 3, cancel, 0,
+            None, "run-live-5", "Phase 1", [], 3, time.monotonic(),
+        )
+        assert len(results) == 3
+
+
+# ---------------------------------------------------------------------------
+# run_rate_limit_test — cumulative total_requests across phases
+# ---------------------------------------------------------------------------
+
+class TestRateLimitCumulativeTotal:
+    @pytest.mark.asyncio
+    @patch("overload.engine.rate_limiter._PHASE_DURATION", 0.05)
+    @patch("overload.engine.rate_limiter._COOLDOWN_SECONDS", 0)
+    @patch("overload.engine.rate_limiter._fire_one", new_callable=AsyncMock)
+    async def test_total_requests_is_cumulative(self, mock_fire: AsyncMock) -> None:
+        """total_requests in every progress message must equal cap + 2*cap, not reset per phase."""
+        mock_fire.return_value = _result(200)
+        cancel = asyncio.Event()
+        cap = 4
+        config = PatternConfig(rate_limit_cap=cap, concurrency=10)
+        totals: list[int] = []
+
+        async def on_progress(p: RunProgress) -> None:
+            totals.append(p.total_requests)
+
+        await run_rate_limit_test(
+            AsyncMock(), [_request()], VariableContext(), config,
+            "run-cum-1", cancel, on_progress,
+        )
+
+        expected_total = cap + cap * 2
+        assert all(t == expected_total for t in totals), (
+            f"total_requests should always be {expected_total}, got: {set(totals)}"
+        )
+
+    @pytest.mark.asyncio
+    @patch("overload.engine.rate_limiter._PHASE_DURATION", 0.05)
+    @patch("overload.engine.rate_limiter._COOLDOWN_SECONDS", 0)
+    @patch("overload.engine.rate_limiter._fire_one", new_callable=AsyncMock)
+    async def test_status_codes_tracked_in_progress(self, mock_fire: AsyncMock) -> None:
+        """Progress messages during Phase 2 must include status codes from both phases."""
+        call_count = 0
+        cap = 3
+
+        async def mixed_statuses(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return _result(429 if call_count > cap else 200)
+
+        mock_fire.side_effect = mixed_statuses
+        cancel = asyncio.Event()
+        config = PatternConfig(rate_limit_cap=cap, concurrency=10)
+        final_status_codes: dict[int, int] = {}
+
+        async def on_progress(p: RunProgress) -> None:
+            if p.phase == "complete":
+                final_status_codes.update(p.status_codes)
+
+        await run_rate_limit_test(
+            AsyncMock(), [_request()], VariableContext(), config,
+            "run-cum-2", cancel, on_progress,
+        )
+
+        assert 200 in final_status_codes
+        assert 429 in final_status_codes
