@@ -80,12 +80,13 @@
         <h2 class="card__title">v0.2.1 — Live Dashboard Fixes</h2>
         <p class="card__desc"><strong>Date:</strong> 2026-06-06</p>
         <ul>
-          <li><strong>Live Dashboard:</strong> All test patterns now emit progress updates at least every ~0.5 s. Previously, Ramp and Stress tests blocked up to 30 s between updates because they waited for an entire step to complete via <code>asyncio.gather</code>. All patterns now use <code>add_done_callback</code> + <code>asyncio.as_completed</code> so the dashboard updates as each response arrives.</li>
+          <li><strong>Live Dashboard (all 10 test types):</strong> All patterns now emit progress at least every ~0.5 s via a time-based throttle. Previously, Ramp and Stress blocked up to 30 s between updates. All 8 engine patterns switched from <code>asyncio.gather</code> to <code>add_done_callback</code> + <code>asyncio.as_completed</code> so the dashboard updates as each response arrives.</li>
+          <li><strong>BreakpointPattern Probe Fixed:</strong> The internal <code>_probe()</code> coroutine previously used <code>asyncio.gather</code> and blocked silently for up to 5 s per binary-search probe (RPS × 5 s). Now uses <code>add_done_callback</code> + <code>asyncio.as_completed</code> so progress emits throughout each probe.</li>
           <li><strong>Rate Limit 50–60 s Delay Fixed:</strong> The task-dispatch loop now emits a <code>sent N/M</code> progress update per request. Cooldown ticks every second with a countdown label. Previously the dashboard was silent for the entire 60 s phase.</li>
-          <li><strong>Accurate Progress Bar:</strong> <code>total_requests</code> is now the full cumulative total (<code>cap + 2×cap</code>) across both rate limit phases so the bar never resets to 0% when Phase 2 starts.</li>
+          <li><strong>Accurate Progress Bar:</strong> <code>total_requests</code> in rate limit tests is always the full cumulative total (<code>cap + 2×cap</code>) so the bar never resets to 0% when Phase 2 starts.</li>
           <li><strong>Client-Side Elapsed Timer:</strong> A 1 s <code>setInterval</code> in the browser ticks the elapsed counter independently, so it never freezes between WebSocket messages.</li>
           <li><strong>Fluid Status Chart:</strong> Status-code doughnut now does incremental <code>chart.update()</code> instead of destroy + recreate, eliminating jank during rapid updates.</li>
-          <li><strong>Tests:</strong> 20 new tests in <code>test_load_patterns.py</code> covering throttle behaviour, <code>_safe_done_callback</code>, and per-pattern liveness. Additional rate limit tests for live progress and cumulative totals. 170 tests total.</li>
+          <li><strong>Tests:</strong> 27 new tests in <code>test_load_patterns.py</code> covering throttle behaviour, <code>_safe_done_callback</code>, and per-pattern liveness for all 8 engine patterns (Burst, Ramp, Load, Stress, Spike, Soak, Breakpoint, Custom). Additional rate limit tests for live progress and cumulative totals. <strong>177 tests total</strong>, all passing.</li>
         </ul>
       </div>
 

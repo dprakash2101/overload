@@ -15,6 +15,8 @@ from overload.engine.load_patterns import (
     _safe_done_callback,
     BreakpointPattern,
     BurstPattern,
+    CustomPattern,
+    LoadTestPattern,
     RampPattern,
     SoakPattern,
     SpikePattern,
@@ -411,3 +413,136 @@ class TestBreakpointPatternLiveProgress:
             )
 
         assert len(set(completeds)) > 1, "completed_requests never changed — dashboard was not live"
+
+
+# ---------------------------------------------------------------------------
+# LoadTestPattern — live progress across ramp-up, hold, ramp-down
+# ---------------------------------------------------------------------------
+
+class TestLoadTestPatternLiveProgress:
+    @pytest.mark.asyncio
+    @patch("overload.engine.load_patterns._fire_one", new_callable=AsyncMock)
+    async def test_emits_during_hold_phase(self, mock_fire: AsyncMock) -> None:
+        mock_fire.return_value = _result(200)
+        cancel = asyncio.Event()
+        config = PatternConfig(
+            target_rps=5, ramp_up_seconds=0, hold_duration_seconds=1,
+            ramp_down_seconds=0, concurrency=10,
+        )
+        progress_calls: list[RunProgress] = []
+
+        async def on_progress(p: RunProgress) -> None:
+            progress_calls.append(p)
+
+        run_id = "load-live-1"
+        _last_emit_time.pop(run_id, None)
+        _last_emit_state.pop(run_id, None)
+
+        pattern = LoadTestPattern()
+        with patch("overload.engine.load_patterns._MIN_EMIT_INTERVAL", 0.0):
+            await pattern.execute(
+                AsyncMock(), [_request()], VariableContext(), config, run_id, cancel, on_progress,
+            )
+
+        assert len(progress_calls) >= 2
+
+    @pytest.mark.asyncio
+    @patch("overload.engine.load_patterns._fire_one", new_callable=AsyncMock)
+    async def test_completed_grows_monotonically(self, mock_fire: AsyncMock) -> None:
+        mock_fire.return_value = _result(200)
+        cancel = asyncio.Event()
+        config = PatternConfig(
+            target_rps=5, ramp_up_seconds=0, hold_duration_seconds=1,
+            ramp_down_seconds=0, concurrency=10,
+        )
+        completeds: list[int] = []
+
+        async def on_progress(p: RunProgress) -> None:
+            completeds.append(p.completed_requests)
+
+        run_id = "load-live-2"
+        _last_emit_time.pop(run_id, None)
+        _last_emit_state.pop(run_id, None)
+
+        pattern = LoadTestPattern()
+        with patch("overload.engine.load_patterns._MIN_EMIT_INTERVAL", 0.0):
+            await pattern.execute(
+                AsyncMock(), [_request()], VariableContext(), config, run_id, cancel, on_progress,
+            )
+
+        for i in range(1, len(completeds)):
+            assert completeds[i] >= completeds[i - 1], "completed_requests decreased"
+
+
+# ---------------------------------------------------------------------------
+# CustomPattern — live progress during stages
+# ---------------------------------------------------------------------------
+
+class TestCustomPatternLiveProgress:
+    @pytest.mark.asyncio
+    @patch("overload.engine.load_patterns._fire_one", new_callable=AsyncMock)
+    async def test_emits_during_stage(self, mock_fire: AsyncMock) -> None:
+        mock_fire.return_value = _result(200)
+        cancel = asyncio.Event()
+        config = PatternConfig(
+            stages=[{"rps": 5, "duration": 1}],
+            concurrency=10,
+        )
+        progress_calls: list[RunProgress] = []
+
+        async def on_progress(p: RunProgress) -> None:
+            progress_calls.append(p)
+
+        run_id = "custom-live-1"
+        _last_emit_time.pop(run_id, None)
+        _last_emit_state.pop(run_id, None)
+
+        pattern = CustomPattern()
+        with patch("overload.engine.load_patterns._MIN_EMIT_INTERVAL", 0.0):
+            await pattern.execute(
+                AsyncMock(), [_request()], VariableContext(), config, run_id, cancel, on_progress,
+            )
+
+        assert len(progress_calls) >= 2
+
+    @pytest.mark.asyncio
+    @patch("overload.engine.load_patterns._fire_one", new_callable=AsyncMock)
+    async def test_emits_across_multiple_stages(self, mock_fire: AsyncMock) -> None:
+        mock_fire.return_value = _result(200)
+        cancel = asyncio.Event()
+        config = PatternConfig(
+            stages=[{"rps": 3, "duration": 1}, {"rps": 5, "duration": 1}],
+            concurrency=10,
+        )
+        phases_seen: set[str] = set()
+
+        async def on_progress(p: RunProgress) -> None:
+            phases_seen.add(p.phase)
+
+        run_id = "custom-live-2"
+        _last_emit_time.pop(run_id, None)
+        _last_emit_state.pop(run_id, None)
+
+        pattern = CustomPattern()
+        with patch("overload.engine.load_patterns._MIN_EMIT_INTERVAL", 0.0):
+            await pattern.execute(
+                AsyncMock(), [_request()], VariableContext(), config, run_id, cancel, on_progress,
+            )
+
+        assert any("Stage 1" in p for p in phases_seen)
+        assert any("Stage 2" in p for p in phases_seen)
+
+    @pytest.mark.asyncio
+    @patch("overload.engine.load_patterns._fire_one", new_callable=AsyncMock)
+    async def test_empty_stages_returns_no_results(self, mock_fire: AsyncMock) -> None:
+        mock_fire.return_value = _result(200)
+        cancel = asyncio.Event()
+        config = PatternConfig(stages=[], concurrency=10)
+
+        pattern = CustomPattern()
+        results = await pattern.execute(
+            AsyncMock(), [_request()], VariableContext(), config, "custom-live-3", cancel,
+        )
+
+        assert results == []
+        mock_fire.assert_not_called()
