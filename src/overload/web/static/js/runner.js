@@ -7,6 +7,9 @@ window.RunnerPage = (function() {
   var lastLogIdx = -1;
   var logEntries = [];
   var prevProgress = { completed: 0, time: 0 };
+  var elapsedTimer = null;
+  var elapsedBase = 0;
+  var elapsedStartWall = 0;
 
   var TEST_TYPES = [
     { id: 'load', name: 'Load Test', desc: 'Sustained traffic at target RPS with ramp up/down', shape: [1,3,5,8,10,10,10,10,10,10,8,5,3] },
@@ -440,6 +443,7 @@ window.RunnerPage = (function() {
         lastLogIdx = -1;
         prevProgress = { completed: 0, time: Date.now() };
         showLiveDashboard();
+        startElapsedTimer();
         window.OverloadApp.subscribeToRun(currentRunId, onProgress);
       } else {
         App.toast('Error: ' + data.message, 'error');
@@ -505,8 +509,15 @@ window.RunnerPage = (function() {
     document.getElementById('kpiTotal').textContent = data.completed_requests;
     document.getElementById('kpiRps').textContent = data.current_rps;
     document.getElementById('kpiLatency').textContent = data.avg_latency_ms ? data.avg_latency_ms + 'ms' : '-';
-    document.getElementById('kpiElapsed').textContent = data.elapsed_seconds + 's';
     document.getElementById('kpiErrors').textContent = data.error_count || 0;
+
+    // Sync elapsed timer base to authoritative server value
+    if (data.elapsed_seconds !== undefined) {
+      elapsedBase = data.elapsed_seconds;
+      elapsedStartWall = Date.now();
+      var el = document.getElementById('kpiElapsed');
+      if (el) el.textContent = data.elapsed_seconds + 's';
+    }
 
     var total = data.total_requests || data.completed_requests;
     var successRate = data.completed_requests > 0 && data.error_count !== undefined
@@ -598,6 +609,7 @@ window.RunnerPage = (function() {
     // Test complete
     if (data.phase === 'complete' || (data.phase && data.phase.indexOf('complete') === 0)) {
       isRunning = false;
+      stopElapsedTimer();
       var stopBtn = document.getElementById('stopBtn');
       if (stopBtn) {
         stopBtn.textContent = 'View Results';
@@ -633,7 +645,27 @@ window.RunnerPage = (function() {
     }
   }
 
+  function startElapsedTimer() {
+    stopElapsedTimer();
+    elapsedBase = 0;
+    elapsedStartWall = Date.now();
+    elapsedTimer = setInterval(function() {
+      var el = document.getElementById('kpiElapsed');
+      if (!el) { stopElapsedTimer(); return; }
+      var secs = elapsedBase + Math.round((Date.now() - elapsedStartWall) / 1000);
+      el.textContent = secs + 's';
+    }, 1000);
+  }
+
+  function stopElapsedTimer() {
+    if (elapsedTimer) {
+      clearInterval(elapsedTimer);
+      elapsedTimer = null;
+    }
+  }
+
   function stopTest() {
+    stopElapsedTimer();
     fetch('/api/test/stop', { method: 'POST' })
       .then(function() { App.toast('Stop signal sent', 'success'); })
       .catch(function(err) { App.toast('Error: ' + err.message, 'error'); });
@@ -650,6 +682,7 @@ window.RunnerPage = (function() {
     logEntries = [];
     lastLogIdx = -1;
     thresholds = [];
+    stopElapsedTimer();
   }
 
   return { render: render, reset: reset };
