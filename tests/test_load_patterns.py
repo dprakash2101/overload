@@ -13,6 +13,7 @@ from overload.engine.load_patterns import (
     _last_emit_state,
     _last_emit_time,
     _safe_done_callback,
+    BreakpointPattern,
     BurstPattern,
     RampPattern,
     SoakPattern,
@@ -350,3 +351,63 @@ class TestSoakPatternLiveProgress:
             )
 
         assert len(progress_calls) >= 2
+
+
+# ---------------------------------------------------------------------------
+# BreakpointPattern — live progress during probes
+# ---------------------------------------------------------------------------
+
+class TestBreakpointPatternLiveProgress:
+    @pytest.mark.asyncio
+    @patch("overload.engine.load_patterns._fire_one", new_callable=AsyncMock)
+    async def test_emits_during_probe(self, mock_fire: AsyncMock) -> None:
+        """Progress must be emitted while the probe is running, not just before/after."""
+        mock_fire.return_value = _result(200)
+        cancel = asyncio.Event()
+        config = PatternConfig(
+            start_rps=5, max_rps=10, precision_rps=4,
+            latency_threshold_ms=5000, error_threshold_pct=50.0, concurrency=10,
+        )
+        progress_calls: list[RunProgress] = []
+
+        async def on_progress(p: RunProgress) -> None:
+            progress_calls.append(p)
+
+        run_id = "bp-live-1"
+        _last_emit_time.pop(run_id, None)
+        _last_emit_state.pop(run_id, None)
+
+        pattern = BreakpointPattern()
+        with patch("overload.engine.load_patterns._MIN_EMIT_INTERVAL", 0.0):
+            await pattern.execute(
+                AsyncMock(), [_request()], VariableContext(), config, run_id, cancel, on_progress,
+            )
+
+        assert len(progress_calls) >= 3
+
+    @pytest.mark.asyncio
+    @patch("overload.engine.load_patterns._fire_one", new_callable=AsyncMock)
+    async def test_completed_grows_during_probe(self, mock_fire: AsyncMock) -> None:
+        """completed_requests must increase during probe execution, not only at the end."""
+        mock_fire.return_value = _result(200)
+        cancel = asyncio.Event()
+        config = PatternConfig(
+            start_rps=5, max_rps=10, precision_rps=4,
+            latency_threshold_ms=5000, error_threshold_pct=50.0, concurrency=10,
+        )
+        completeds: list[int] = []
+
+        async def on_progress(p: RunProgress) -> None:
+            completeds.append(p.completed_requests)
+
+        run_id = "bp-live-2"
+        _last_emit_time.pop(run_id, None)
+        _last_emit_state.pop(run_id, None)
+
+        pattern = BreakpointPattern()
+        with patch("overload.engine.load_patterns._MIN_EMIT_INTERVAL", 0.0):
+            await pattern.execute(
+                AsyncMock(), [_request()], VariableContext(), config, run_id, cancel, on_progress,
+            )
+
+        assert len(set(completeds)) > 1, "completed_requests never changed — dashboard was not live"

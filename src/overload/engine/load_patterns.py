@@ -608,10 +608,11 @@ class BreakpointPattern:
         last_good = start_rps
         breakpoint_rps = 0
 
-        async def _probe(rps: int) -> tuple[float, float]:
+        async def _probe(rps: int, phase: str) -> tuple[float, float]:
             nonlocal request_idx
             interval = 1.0 / rps
-            probe_tasks = []
+            probe_tasks: list[asyncio.Task] = []
+            probe_results: list[RequestResult] = []
             probe_start = time.monotonic()
             probe_count = rps * 5
 
@@ -623,21 +624,30 @@ class BreakpointPattern:
                     await asyncio.sleep(delay)
                 req = _pick_request(requests, request_idx, config.distribution)
                 request_idx += 1
-                probe_tasks.append(asyncio.create_task(_fire_one(client, req, variables, sem)))
+                task = asyncio.create_task(_fire_one(client, req, variables, sem))
+                task.add_done_callback(_safe_done_callback(probe_results))
+                task.add_done_callback(_safe_done_callback(all_results))
+                probe_tasks.append(task)
+                await _emit_progress(on_progress, run_id, all_results, 0, phase, start_time)
 
-            probe_results = await asyncio.gather(*probe_tasks, return_exceptions=True)
-            valid = [r for r in probe_results if isinstance(r, RequestResult)]
-            all_results.extend(valid)
+            pending = [t for t in probe_tasks if not t.done()]
+            if pending:
+                for coro in asyncio.as_completed(pending):
+                    try:
+                        await coro
+                    except Exception:
+                        pass
+                    await _emit_progress(on_progress, run_id, all_results, 0, phase, start_time)
 
-            if not valid:
+            if not probe_results:
                 return 0.0, 1.0
 
-            latencies = sorted(r.latency_ms for r in valid)
+            latencies = sorted(r.latency_ms for r in probe_results)
             p95_idx = int(len(latencies) * 0.95)
             p95 = latencies[min(p95_idx, len(latencies) - 1)]
 
-            errors = sum(1 for r in valid if r.status_code < 200 or r.status_code >= 400)
-            error_rate = errors / len(valid)
+            errors = sum(1 for r in probe_results if r.status_code < 200 or r.status_code >= 400)
+            error_rate = errors / len(probe_results)
 
             return p95, error_rate
 
@@ -649,7 +659,7 @@ class BreakpointPattern:
             phase = f"Probing: {mid} req/s"
             await _emit_progress(on_progress, run_id, all_results, 0, phase, start_time, force=True)
 
-            p95, error_rate = await _probe(mid)
+            p95, error_rate = await _probe(mid, phase)
             logger.info("Probe %d req/s: p95=%.1fms, error_rate=%.1f%%", mid, p95, error_rate * 100)
 
             await _emit_progress(on_progress, run_id, all_results, 0, phase, start_time, force=True)
