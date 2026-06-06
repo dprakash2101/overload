@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.2.1] — 2026-06-06
+
+### Fixed
+
+**Live dashboard — real-time updates for all test types**
+- All patterns now emit progress at least every ~0.5 s via a time-based throttle in `_emit_progress`. Previously, batch-gather patterns (Ramp, Stress) blocked up to 30 s between updates.
+- `RampPattern` and `StressPattern` switched from `asyncio.gather` to `add_done_callback` + `asyncio.as_completed`, so completed-request counts and status codes update as each HTTP response arrives instead of at the end of a whole step.
+- `SpikePattern`, `SoakPattern`, `CustomPattern`, and `LoadTestPattern` use the same streaming approach — results accumulate in real time throughout each phase.
+- Client-side elapsed timer (`setInterval 1 s`) now ticks independently so the elapsed counter never freezes between WebSocket messages. It syncs to the authoritative server value on each update.
+- Status-code doughnut chart uses incremental `chart.update()` instead of destroy + recreate, eliminating jank during rapid updates.
+
+**Rate limit test — 50–60 s delay before showing any info**
+- `_run_phase` previously emitted no progress during the 60-second task-dispatch loop. It now emits a progress update per request dispatched (throttled to 0.5 s) showing a `sent N/M` counter.
+- Cooldown period now emits a countdown tick every second (`Cooldown: Ns remaining`) instead of 15 s of silence.
+- `total_requests` in every progress message is now the full cumulative total (`cap + 2×cap`) so the progress bar never resets to 0% when Phase 2 starts.
+- Status codes and error count are tracked and sent with every progress update, including the final `complete` message.
+
+### Added
+
+- `_safe_done_callback` helper used by all patterns to safely append task results without swallowing exceptions.
+- `tests/test_load_patterns.py` — 20 new tests covering throttle behaviour, `_safe_done_callback`, and per-pattern liveness (BurstPattern, RampPattern, StressPattern, SpikePattern, SoakPattern).
+- Additional tests in `test_rate_limiter.py` for live progress emission, cumulative total_requests, status code tracking, cooldown countdown, and no-callback safety.
+
+---
+
 ## [0.2.0] — 2026-06-02
 
 ### Changed
