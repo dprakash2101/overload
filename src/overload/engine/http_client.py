@@ -5,6 +5,7 @@ import time
 
 import httpx
 
+from overload.collection.data_source import DataSource
 from overload.collection.models import AuthConfig, ParsedRequest, RequestBody
 from overload.collection.variables import VariableContext
 from overload.engine.models import RequestResult
@@ -20,12 +21,15 @@ class HttpClient:
         follow_redirects: bool = True,
         max_connections: int = 100,
         save_responses: bool = False,
+        data_source: DataSource | None = None,
     ) -> None:
         self._timeout = timeout
         self._verify_ssl = verify_ssl
         self._follow_redirects = follow_redirects
         self._max_connections = max_connections
         self._save_responses = save_responses
+        self._data_source = data_source
+        self._row_index = 0
         self._client: httpx.AsyncClient | None = None
 
     async def __aenter__(self) -> HttpClient:
@@ -54,6 +58,11 @@ class HttpClient:
             raise RuntimeError("HttpClient must be used as an async context manager")
 
         ctx = variables or VariableContext()
+
+        if self._data_source is not None:
+            row = self._data_source.row_for(self._row_index)
+            self._row_index += 1
+            ctx = ctx.derive(row)
 
         url = ctx.resolve_url(request.url_raw)
         method = request.method

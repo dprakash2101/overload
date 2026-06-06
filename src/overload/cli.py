@@ -43,6 +43,7 @@ def main() -> None:
     run_parser.add_argument("--concurrency", type=int, default=20, help="Max concurrent requests (default: 20)")
     run_parser.add_argument("--rps", type=int, default=50, help="Target requests per second")
     run_parser.add_argument("--duration", type=int, default=300, help="Test duration in seconds")
+    run_parser.add_argument("--data", metavar="PATH", help="CSV file for data-driven testing (column names fill {{placeholders}})")
     run_parser.add_argument("--var", action="append", dest="vars", metavar="KEY=VALUE", help="Variable override")
     run_parser.add_argument("--save-responses", action="store_true", help="Save response bodies")
     run_parser.add_argument("--output", default="reports", help="Output directory for reports (default: reports/)")
@@ -64,6 +65,7 @@ def main() -> None:
     seq_parser.add_argument("--environment", help="Path to Postman environment JSON")
     seq_parser.add_argument("--iterations", type=int, default=1, help="Number of iterations (default: 1)")
     seq_parser.add_argument("--delay", type=int, default=0, help="Delay between requests in ms (default: 0)")
+    seq_parser.add_argument("--data", metavar="PATH", help="CSV file for data-driven testing")
     seq_parser.add_argument("--var", action="append", dest="vars", metavar="KEY=VALUE", help="Variable override")
     seq_parser.add_argument("--output", default=".", help="Output directory")
     seq_parser.add_argument("--timeout", type=float, default=30.0, help="Request timeout in seconds")
@@ -115,6 +117,7 @@ def _start_ui(args: argparse.Namespace) -> None:
 
     print(f"\n  OVERLOAD — Load Testing Tool v{__version__}")
     print(f"  Starting on http://{host}:{port}")
+    print("  Open the in-app 'Docs' tab for help, or visit https://dprakash2101.github.io/overload/")
     print("  Press Ctrl+C to stop\n")
 
     if not no_browser:
@@ -165,6 +168,12 @@ async def _run_test(args: argparse.Namespace) -> None:
         environment_vars=env_vars,
         runtime_vars=runtime_vars,
     )
+
+    data_source = None
+    if getattr(args, "data", None):
+        from overload.collection.data_source import DataSource
+        data_source = DataSource.from_csv(args.data)
+        print(f"  Data: {args.data} ({len(data_source.rows)} rows, columns: {', '.join(data_source.columns)})")
 
     run_id = generate_run_id()
     cancel_event = asyncio.Event()
@@ -226,6 +235,7 @@ async def _run_test(args: argparse.Namespace) -> None:
         timeout=config.timeout_seconds,
         verify_ssl=config.verify_ssl,
         max_connections=config.concurrency * 2,
+        data_source=data_source,
     ) as client:
         await client.prepare_collection_auth(collection.auth, variables)
         if args.pattern == "ratelimit":
@@ -347,6 +357,12 @@ async def _run_sequential(args: argparse.Namespace) -> None:
         runtime_vars=runtime_vars,
     )
 
+    data_source = None
+    if getattr(args, "data", None):
+        from overload.collection.data_source import DataSource
+        data_source = DataSource.from_csv(args.data)
+        print(f"  Data: {args.data} ({len(data_source.rows)} rows)")
+
     run_id = generate_run_id()
     cancel_event = asyncio.Event()
     print(f"  Run ID: {run_id}\n")
@@ -362,7 +378,7 @@ async def _run_sequential(args: argparse.Namespace) -> None:
         if progress.phase == "complete":
             print()
 
-    async with HttpClient(timeout=config.timeout_seconds) as client:
+    async with HttpClient(timeout=config.timeout_seconds, data_source=data_source) as client:
         results = await run_sequential(
             client, collection.requests, variables, config,
             run_id, cancel_event, on_progress,

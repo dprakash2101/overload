@@ -33,6 +33,9 @@ window.OverloadApp = (function() {
       case 'results':
         renderResults(content);
         break;
+      case 'docs':
+        DocsPage.render(content);
+        break;
     }
   }
 

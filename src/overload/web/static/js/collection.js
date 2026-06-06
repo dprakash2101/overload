@@ -2,6 +2,7 @@ window.CollectionPage = (function() {
   var collection = null;
   var selectedRequest = null;
   var selectedIndices = null; // null = all selected; Set<number> = explicit subset
+  var dataAttached = false;
 
   function render(container) {
     container.innerHTML =
@@ -22,6 +23,14 @@ window.CollectionPage = (function() {
           '<div class="drop-zone-sub">Drop Postman Environment file</div>' +
           '<input type="file" id="envFile" accept=".json">' +
         '</div>' +
+      '</div>' +
+      '<div class="card" style="display:none" id="csvCard">' +
+        '<div class="card-title">Data file (CSV) <span style="font-weight:400;font-size:11px;color:var(--mut)">— optional</span></div>' +
+        '<div class="drop-zone" id="csvDropZone" style="padding:24px">' +
+          '<div class="drop-zone-sub">Drop CSV file — column names fill <code>{{placeholders}}</code> in the collection</div>' +
+          '<input type="file" id="csvFile" accept=".csv">' +
+        '</div>' +
+        '<div id="csvStatus" style="display:none;margin-top:8px;font-size:11px"></div>' +
       '</div>' +
       '<div id="collectionView" style="display:none"></div>';
 
@@ -150,6 +159,20 @@ window.CollectionPage = (function() {
       if (e.dataTransfer.files.length) uploadEnvironment(e.dataTransfer.files[0]);
     });
     envInput.addEventListener('change', function() { if (envInput.files.length) uploadEnvironment(envInput.files[0]); });
+
+    var csvZone = document.getElementById('csvDropZone');
+    var csvInput = document.getElementById('csvFile');
+    if (csvZone && csvInput) {
+      csvZone.addEventListener('click', function() { csvInput.click(); });
+      csvZone.addEventListener('dragover', function(e) { e.preventDefault(); csvZone.classList.add('dragover'); });
+      csvZone.addEventListener('dragleave', function() { csvZone.classList.remove('dragover'); });
+      csvZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        csvZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) uploadCsv(e.dataTransfer.files[0]);
+      });
+      csvInput.addEventListener('change', function() { if (csvInput.files.length) uploadCsv(csvInput.files[0]); });
+    }
   }
 
   function uploadCollection(file) {
@@ -188,9 +211,56 @@ window.CollectionPage = (function() {
       .catch(function(err) { App.toast('Upload failed: ' + err.message, 'error'); });
   }
 
+  function uploadCsv(file) {
+    var formData = new FormData();
+    formData.append('file', file);
+    fetch('/api/data/upload', { method: 'POST', body: formData })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.status === 'ok') {
+          dataAttached = true;
+          renderCsvStatus(data);
+          App.toast('Data loaded: ' + data.row_count + ' rows, ' + data.columns.length + ' columns', 'success');
+        } else {
+          App.toast('Error: ' + data.message, 'error');
+        }
+      })
+      .catch(function(err) { App.toast('Upload failed: ' + err.message, 'error'); });
+  }
+
+  function renderCsvStatus(data) {
+    var el = document.getElementById('csvStatus');
+    if (!el) return;
+    var html = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+    html += '<span style="color:var(--ok)">&#10003; ' + data.row_count + ' rows, ' + data.columns.length + ' columns</span>';
+    if (data.matched_placeholders && data.matched_placeholders.length) {
+      html += '<span style="color:var(--ok)">Matched: ' + data.matched_placeholders.map(function(p) { return '<code>{{' + esc(p) + '}}</code>'; }).join(', ') + '</span>';
+    }
+    if (data.unmatched_placeholders && data.unmatched_placeholders.length) {
+      html += '<span style="color:var(--warn,#b45309)">No column for: ' + data.unmatched_placeholders.map(function(p) { return '<code>{{' + esc(p) + '}}</code>'; }).join(', ') + '</span>';
+    }
+    html += '<button class="btn btn-secondary" id="clearCsvBtn" style="padding:2px 8px;font-size:11px;margin-left:auto">Remove</button>';
+    html += '</div>';
+    el.innerHTML = html;
+    el.style.display = 'block';
+    var clearBtn = document.getElementById('clearCsvBtn');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function() {
+        fetch('/api/data/clear', { method: 'POST' })
+          .then(function() {
+            dataAttached = false;
+            el.style.display = 'none';
+            el.innerHTML = '';
+            App.toast('Data file removed', 'success');
+          });
+      });
+    }
+  }
+
   function renderCollection() {
     document.getElementById('uploadCard').style.display = 'none';
     document.getElementById('envCard').style.display = 'block';
+    document.getElementById('csvCard').style.display = 'block';
     var detected = document.getElementById('detectedFiles');
     if (detected) detected.style.display = 'none';
 

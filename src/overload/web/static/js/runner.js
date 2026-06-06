@@ -10,6 +10,7 @@ window.RunnerPage = (function() {
   var elapsedTimer = null;
   var elapsedBase = 0;
   var elapsedStartWall = 0;
+  var beginnerMode = localStorage.getItem('overload-beginner') === '1';
 
   var TEST_TYPES = [
     { id: 'load', name: 'Load Test', desc: 'Sustained traffic at target RPS with ramp up/down', shape: [1,3,5,8,10,10,10,10,10,10,8,5,3] },
@@ -479,20 +480,48 @@ window.RunnerPage = (function() {
       : '';
     dash.innerHTML =
       '<div class="card">' +
-        '<div class="card-title">Running: ' + runningLabel + ' — ' + currentRunId + '</div>' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">' +
+          '<div class="card-title" style="margin-bottom:0">Running: ' + runningLabel + ' — ' + currentRunId + '</div>' +
+          '<button class="btn btn-secondary" id="beginnerToggle" style="padding:3px 8px;font-size:11px">Beginner mode: ' + (beginnerMode ? 'ON' : 'OFF') + '</button>' +
+        '</div>' +
         phaseInfoHtml +
         '<div class="kpi-grid" id="liveKpis">' +
-          '<div class="kpi kpi-mid"><div class="kpi-label">Total</div><div class="kpi-value" id="kpiTotal">0</div></div>' +
-          '<div class="kpi kpi-ok"><div class="kpi-label">Success Rate</div><div class="kpi-value" id="kpiSuccess">-</div></div>' +
-          '<div class="kpi kpi-blue"><div class="kpi-label">Avg Latency</div><div class="kpi-value" id="kpiLatency">-</div></div>' +
-          '<div class="kpi kpi-ok"><div class="kpi-label">Current RPS</div><div class="kpi-value" id="kpiRps">0</div></div>' +
-          '<div class="kpi kpi-mid"><div class="kpi-label">Elapsed</div><div class="kpi-value" id="kpiElapsed">0s</div></div>' +
-          '<div class="kpi kpi-bad"><div class="kpi-label">Errors</div><div class="kpi-value" id="kpiErrors">0</div></div>' +
+          '<div class="kpi kpi-mid">' +
+            '<div class="kpi-label">Total <span class="tooltip" data-tip="Total HTTP requests fired so far.">?</span></div>' +
+            '<div class="kpi-value" id="kpiTotal">0</div>' +
+            '<div class="kpi-hint" style="font-size:10px;color:var(--mut);margin-top:2px;display:none">requests sent</div>' +
+          '</div>' +
+          '<div class="kpi kpi-ok">' +
+            '<div class="kpi-label">Success Rate <span class="tooltip" data-tip="Percentage of responses with a 2xx status code.">?</span></div>' +
+            '<div class="kpi-value" id="kpiSuccess">-</div>' +
+            '<div class="kpi-hint" style="font-size:10px;color:var(--mut);margin-top:2px;display:none">2xx responses / total</div>' +
+          '</div>' +
+          '<div class="kpi kpi-blue">' +
+            '<div class="kpi-label">Avg Latency <span class="tooltip" data-tip="Mean round-trip response time across all completed requests.">?</span></div>' +
+            '<div class="kpi-value" id="kpiLatency">-</div>' +
+            '<div class="kpi-hint" style="font-size:10px;color:var(--mut);margin-top:2px;display:none">average response time</div>' +
+          '</div>' +
+          '<div class="kpi kpi-ok">' +
+            '<div class="kpi-label">Current RPS <span class="tooltip" data-tip="Requests being fired per second right now.">?</span></div>' +
+            '<div class="kpi-value" id="kpiRps">0</div>' +
+            '<div class="kpi-hint" style="font-size:10px;color:var(--mut);margin-top:2px;display:none">requests / second</div>' +
+          '</div>' +
+          '<div class="kpi kpi-mid">' +
+            '<div class="kpi-label">Elapsed <span class="tooltip" data-tip="Time since the test started.">?</span></div>' +
+            '<div class="kpi-value" id="kpiElapsed">0s</div>' +
+            '<div class="kpi-hint" style="font-size:10px;color:var(--mut);margin-top:2px;display:none">test duration so far</div>' +
+          '</div>' +
+          '<div class="kpi kpi-bad">' +
+            '<div class="kpi-label">Errors <span class="tooltip" data-tip="Requests that returned a 4xx/5xx status or timed out.">?</span></div>' +
+            '<div class="kpi-value" id="kpiErrors">0</div>' +
+            '<div class="kpi-hint" style="font-size:10px;color:var(--mut);margin-top:2px;display:none">failed requests</div>' +
+          '</div>' +
         '</div>' +
         '<div class="progress-wrap">' +
           '<div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>' +
           '<div class="progress-text"><span id="progressPhase">Starting...</span><span id="progressPct">0%</span></div>' +
         '</div>' +
+        '<div id="friendlyPhaseHint" style="font-size:11px;color:var(--mut);margin:2px 0 10px;min-height:16px"></div>' +
         '<div class="chart-grid">' +
           '<div class="chart-card"><div class="chart-title">Live RPS</div><canvas id="liveRpsChart"></canvas></div>' +
           '<div class="chart-card"><div class="chart-title">Status Codes</div><canvas id="liveStatusChart"></canvas></div>' +
@@ -505,6 +534,8 @@ window.RunnerPage = (function() {
       '</div>';
 
     document.getElementById('stopBtn').addEventListener('click', stopTest);
+    document.getElementById('beginnerToggle').addEventListener('click', toggleBeginnerMode);
+    applyBeginnerMode();
   }
 
   function statusBadgeClass(code) {
@@ -546,6 +577,8 @@ window.RunnerPage = (function() {
     if (pctEl) pctEl.textContent = pct + '%';
     var phaseEl = document.getElementById('progressPhase');
     if (phaseEl) phaseEl.textContent = data.phase || '';
+    var fph = document.getElementById('friendlyPhaseHint');
+    if (fph) fph.textContent = friendlyPhase(data.phase);
 
     // Rate limit phase info
     var rlTitle = document.getElementById('rlPhaseTitle');
@@ -675,6 +708,39 @@ window.RunnerPage = (function() {
       clearInterval(elapsedTimer);
       elapsedTimer = null;
     }
+  }
+
+  function friendlyPhase(phase) {
+    if (!phase) return '';
+    var p = phase.toLowerCase();
+    if (p.indexOf('complete') === 0) return 'Test finished.';
+    if (p.indexOf('ramp') !== -1 && p.indexOf('down') !== -1) return 'Gradually reducing load — cooldown phase.';
+    if (p.indexOf('ramp') !== -1) return 'Slowly increasing traffic to warm up the server.';
+    if (p.indexOf('holding') !== -1 || p.indexOf('hold at') !== -1) return 'Steady traffic — measuring stable performance.';
+    if (p.indexOf('spike') !== -1) return 'Sudden traffic surge — testing how fast the server recovers.';
+    if (p.indexOf('firing') !== -1) return 'Sending all requests at once to simulate peak load.';
+    if (p.indexOf('probing') !== -1) return 'Binary-searching for the exact degradation point.';
+    if (p.indexOf('phase 1') !== -1) return 'Under the rate limit — confirming the API handles normal traffic.';
+    if (p.indexOf('phase 2') !== -1) return 'Exceeding the rate limit — expecting 429 Too Many Requests responses.';
+    if (p.indexOf('cooldown') !== -1) return 'Waiting for the rate limiter window to reset before the next phase.';
+    if (p.indexOf('step') !== -1) return 'Incrementing load step by step until the system shows strain.';
+    if (p.indexOf('iteration') !== -1 || p.indexOf('sequential') !== -1) return 'Running through each request in order.';
+    if (p.indexOf('starting') !== -1 || p.indexOf('preparing') !== -1) return 'Initialising the test run.';
+    return '';
+  }
+
+  function toggleBeginnerMode() {
+    beginnerMode = !beginnerMode;
+    localStorage.setItem('overload-beginner', beginnerMode ? '1' : '0');
+    applyBeginnerMode();
+  }
+
+  function applyBeginnerMode() {
+    document.querySelectorAll('.kpi-hint').forEach(function(h) {
+      h.style.display = beginnerMode ? 'block' : 'none';
+    });
+    var btn = document.getElementById('beginnerToggle');
+    if (btn) btn.textContent = 'Beginner mode: ' + (beginnerMode ? 'ON' : 'OFF');
   }
 
   function stopTest() {

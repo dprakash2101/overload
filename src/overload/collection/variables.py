@@ -80,5 +80,11 @@ class VariableContext:
     def resolve_dict(self, d: dict[str, str]) -> dict[str, str]:
         return {self.resolve(k): self.resolve(v) for k, v in d.items()}
 
+    def derive(self, extra: dict[str, str]) -> VariableContext:
+        new = VariableContext.__new__(VariableContext)
+        new._scopes = [extra, *self._scopes]
+        new._unresolved = self._unresolved
+        return new
+
     def resolve_url(self, url: str) -> str:
         return self.resolve(url)

@@ -10,6 +10,7 @@ from typing import Any
 from fastapi import APIRouter, File, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
+from overload.collection.data_source import DataSource
 from overload.collection.environment import parse_environment
 from overload.collection.models import ParsedCollection
 from overload.collection.parser import parse_collection
@@ -33,6 +34,7 @@ _state: dict[str, Any] = {
     "collection": None,
     "environment": None,
     "variables": None,
+    "data_source": None,
     "runs": {},
     "current_task": None,
     "cancel_event": None,
@@ -43,10 +45,11 @@ _state: dict[str, Any] = {
 def _detect_postman_files(directory: str) -> dict[str, list[dict]]:
     collections: list[dict] = []
     environments: list[dict] = []
+    csv_files: list[dict] = []
 
     dir_path = Path(directory)
     if not dir_path.is_dir():
-        return {"collections": collections, "environments": environments}
+        return {"collections": collections, "environments": environments, "csv_files": csv_files}
 
     for f in sorted(dir_path.glob("*.json")):
         try:
@@ -73,7 +76,19 @@ def _detect_postman_files(directory: str) -> dict[str, list[dict]]:
         except (json.JSONDecodeError, OSError):
             continue
 
-    return {"collections": collections, "environments": environments}
+    for f in sorted(dir_path.glob("*.csv")):
+        try:
+            ds = DataSource.from_csv(str(f))
+            csv_files.append({
+                "filename": f.name,
+                "path": str(f),
+                "row_count": len(ds.rows),
+                "columns": ds.columns,
+            })
+        except OSError:
+            continue
+
+    return {"collections": collections, "environments": environments, "csv_files": csv_files}
 
 
 def _count_requests(items: list) -> int:
@@ -185,6 +200,92 @@ async def upload_environment(file: UploadFile = File(...)) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
 
 
+@router.post("/data/upload")
+async def upload_data(file: UploadFile = File(...)) -> JSONResponse:
+    try:
+        content = await file.read()
+        ds = DataSource.from_csv(content.decode("utf-8-sig"))
+        _state["data_source"] = ds
+        collection = _state.get("collection")
+        matched: list[str] = []
+        unmatched: list[str] = []
+        if collection:
+            from overload.collection.variables import VARIABLE_PATTERN
+            import re
+            all_text = " ".join([
+                r.url_raw + " " + " ".join(r.headers.values()) + " " + str(r.body.content)
+                for r in collection.requests
+            ])
+            placeholders = set(VARIABLE_PATTERN.findall(all_text))
+            col_set = set(ds.columns)
+            matched = sorted(placeholders & col_set)
+            unmatched = sorted(placeholders - col_set)
+        logger.info("CSV data loaded: %d rows, %d columns", len(ds.rows), len(ds.columns))
+        return JSONResponse({
+            "status": "ok",
+            "row_count": len(ds.rows),
+            "columns": ds.columns,
+            "matched_placeholders": matched,
+            "unmatched_placeholders": unmatched,
+        })
+    except Exception as exc:
+        logger.exception("Error loading CSV")
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
+
+
+@router.post("/data/load-local")
+async def load_local_data(body: dict) -> JSONResponse:
+    filepath = body.get("path", "")
+    if not filepath or not os.path.isfile(filepath):
+        return JSONResponse({"status": "error", "message": "File not found"}, status_code=400)
+    try:
+        ds = DataSource.from_csv(filepath)
+        _state["data_source"] = ds
+        collection = _state.get("collection")
+        matched: list[str] = []
+        unmatched: list[str] = []
+        if collection:
+            from overload.collection.variables import VARIABLE_PATTERN
+            all_text = " ".join([
+                r.url_raw + " " + " ".join(r.headers.values()) + " " + str(r.body.content)
+                for r in collection.requests
+            ])
+            placeholders = set(VARIABLE_PATTERN.findall(all_text))
+            col_set = set(ds.columns)
+            matched = sorted(placeholders & col_set)
+            unmatched = sorted(placeholders - col_set)
+        logger.info("CSV data loaded from disk: %s (%d rows)", filepath, len(ds.rows))
+        return JSONResponse({
+            "status": "ok",
+            "row_count": len(ds.rows),
+            "columns": ds.columns,
+            "matched_placeholders": matched,
+            "unmatched_placeholders": unmatched,
+        })
+    except Exception as exc:
+        logger.exception("Error loading CSV from disk")
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
+
+
+@router.post("/data/clear")
+async def clear_data() -> JSONResponse:
+    _state["data_source"] = None
+    logger.info("Data source cleared")
+    return JSONResponse({"status": "ok"})
+
+
+@router.get("/data/status")
+async def data_status() -> JSONResponse:
+    ds: DataSource | None = _state.get("data_source")
+    if ds is None:
+        return JSONResponse({"attached": False})
+    return JSONResponse({
+        "attached": True,
+        "row_count": len(ds.rows),
+        "columns": ds.columns,
+    })
+
+
 @router.post("/variables/update")
 async def update_variables(body: dict) -> JSONResponse:
     overrides = body.get("variables", {})
@@ -245,6 +346,7 @@ async def start_test(body: dict) -> JSONResponse:
         requests = [collection.requests[i] for i in selected_indices if i < len(collection.requests)]
 
     variables = _state.get("variables") or VariableContext(collection_vars=collection.variables)
+    data_source = _state.get("data_source")
     output_dir = os.path.join(_state.get("working_dir", os.getcwd()), "reports")
 
     from overload.web.routes.ws import broadcast_progress
@@ -263,6 +365,7 @@ async def start_test(body: dict) -> JSONResponse:
                 follow_redirects=config.follow_redirects,
                 max_connections=config.concurrency * 2,
                 save_responses=config.save_responses,
+                data_source=data_source,
             ) as client:
                 await client.prepare_collection_auth(collection.auth, variables)
                 if test_type == TestType.SEQUENTIAL:
