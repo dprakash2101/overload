@@ -66,6 +66,13 @@
       <div class="sidebar__section">
         <div class="sidebar__heading">Development</div>
         <a href="architecture.html" class="sidebar__link active">Architecture</a>
+        <a href="architecture.html#engine" class="sidebar__link sidebar__sub">Async Engine</a>
+        <a href="architecture.html#cancel-safety" class="sidebar__link sidebar__sub">Cancellation Safety</a>
+        <a href="architecture.html#run-folder" class="sidebar__link sidebar__sub">Run Folder Layout</a>
+        <a href="architecture.html#variables" class="sidebar__link sidebar__sub">Variable Resolution</a>
+        <a href="architecture.html#service" class="sidebar__link sidebar__sub">Run Orchestration</a>
+        <a href="architecture.html#web" class="sidebar__link sidebar__sub">Web Architecture</a>
+        <a href="architecture.html#mcp" class="sidebar__link sidebar__sub">MCP Server</a>
         <a href="contributing.html" class="sidebar__link">Contributing</a>
         <a href="changelog.html" class="sidebar__link">Changelog</a>
       </div>
@@ -77,35 +84,52 @@
       <p class="subtitle">A look under the hood at how Overload is structured.</p>
 
       <h2 id="overview">System Overview</h2>
-      <p>Overload is primarily built in Python, leveraging modern <code>asyncio</code> primitives for high-concurrency network I/O. The project is split into four main subsystems:</p>
-      
+      <p>Overload is built in Python, leveraging <code>asyncio</code> for high-concurrency network I/O. The project is split into five main subsystems:</p>
+
       <ol class="steps">
-        <li><strong>Collection Parser:</strong> Translates Postman JSON into internal dataclasses.</li>
-        <li><strong>Load Engine:</strong> Asynchronously dispatches HTTP requests using specific concurrency patterns.</li>
-        <li><strong>Reporting:</strong> Aggregates metrics and generates HTML/JSON/CSV outputs.</li>
-        <li><strong>Web UI:</strong> A FastAPI server wrapping the engine, communicating with a Vanilla JS frontend via REST and WebSockets.</li>
+        <li><strong>Collection Parser (<code>collection/</code>):</strong> Translates Postman JSON into internal dataclasses. Handles nested folders, auth inheritance, and all body types.</li>
+        <li><strong>Load Engine (<code>engine/</code>):</strong> Asynchronously dispatches HTTP requests using 10 concurrency patterns. Centralised in <code>engine/service.py</code> — the shared orchestrator used by both the web API and the MCP server.</li>
+        <li><strong>Reporting (<code>report/</code>):</strong> Aggregates metrics and generates per-run folders with HTML, JSON, CSV, and responses outputs.</li>
+        <li><strong>Web UI (<code>web/</code>):</strong> A FastAPI server wrapping the engine, communicating with a Vanilla JS SPA via REST and WebSockets.</li>
+        <li><strong>MCP Server (<code>mcp_server.py</code>):</strong> A stdio MCP server that exposes Overload as tools to LLM-based coding assistants (Claude Code, Codex CLI, GitHub Copilot).</li>
       </ol>
 
       <h2 id="engine">The Async Engine</h2>
-      <p>The core of Overload is the <code>HttpClient</code> (wrapping <code>httpx.AsyncClient</code>) and the <code>LoadPattern</code> protocol.</p>
-      
-      <p>Instead of relying on threads or multiple processes, Overload uses Python's <code>asyncio</code> event loop. This allows a single process to handle thousands of concurrent HTTP connections efficiently.</p>
-      
-      <p>Each load test pattern implements the <code>LoadPattern</code> protocol:</p>
+      <p>The core is <code>HttpClient</code> (wrapping <code>httpx.AsyncClient</code>) and the <code>LoadPattern</code> protocol.</p>
+
+      <p>Overload uses a single-process <code>asyncio</code> event loop — no threads, no multiprocessing. This allows thousands of concurrent HTTP connections with minimal overhead.</p>
+
+      <p>Each load pattern implements:</p>
       <pre data-lang="python"><code>class LoadPattern(Protocol):
-    async def execute(self, client, requests, variables, config, run_id, cancel_event, on_progress) -> list[RequestResult]</code></pre>
-      
-      <p>Depending on the pattern (e.g., Burst vs. Load), tasks are either spawned all at once using an <code>asyncio.Semaphore</code> to limit concurrency, or dispatched iteratively on a strict 1-second interval to achieve a precise RPS curve.</p>
+    async def execute(
+        self, client, requests, variables, config,
+        run_id, cancel_event, on_progress
+    ) -> list[RequestResult]</code></pre>
+
+      <p>Patterns use <code>asyncio.Semaphore</code> to cap concurrency and check <code>cancel_event.is_set()</code> to stop cleanly. Progress is emitted at least every 0.5 s via a time-based throttle in <code>_emit_progress()</code>.</p>
+
+      <h3 id="cancel-safety">Cancellation Safety</h3>
+      <p><code>HttpClient</code> holds a <code>result_sink: list[RequestResult]</code> that is populated by every <code>execute()</code> call, including those still in-flight when a hard <code>asyncio.CancelledError</code> propagates. <code>engine/service.py</code> reads the sink in its <code>except asyncio.CancelledError</code> handler so partial results are never lost — a partial HTML report is always generated.</p>
+
+      <h2 id="run-folder">Per-Run Output Folder</h2>
+      <p><code>utils/naming.py</code> provides <code>make_run_dir(base, run_id)</code> which creates <code>{base}/run_{run_id}/</code>. <code>report/generator.py</code> writes <code>report.html</code> there; <code>report/responses.py</code> writes <code>responses.json</code> when response bodies were captured. <code>engine/service.py</code> writes <code>meta.json</code> (the history sidecar). On startup, <code>load_run_history()</code> scans <code>reports/run_*/meta.json</code> to restore past runs without any database.</p>
 
       <h2 id="variables">Variable Resolution</h2>
-      <p>Variables are resolved just-in-time, right before an HTTP request is dispatched. The <code>VariableContext</code> class manages a 3-tier scope (Runtime, Environment, Collection). It recursively parses the request URL, headers, and body, searching for the <code>{{var}}</code> regex and substituting values securely.</p>
+      <p><code>VariableContext</code> manages a scope chain: <strong>CSV row</strong> (if attached) &gt; <strong>runtime overrides</strong> (<code>--var</code>) &gt; <strong>environment file</strong> &gt; <strong>collection variables</strong>. Variables are resolved just-in-time before each HTTP request. <code>VariableContext.derive(row)</code> prepends a CSV-row scope without mutating the base context, making it safe for concurrent requests.</p>
+
+      <h2 id="service">Shared Run Orchestration</h2>
+      <p><code>engine/service.py</code> is the single entry point for running a test. It is called by both <code>web/routes/api.py</code> (via <code>asyncio.create_task</code>) and <code>mcp_server.py</code> (direct <code>await</code>). This avoids duplicated logic and ensures identical behaviour regardless of the invocation path.</p>
 
       <h2 id="web">Web Architecture</h2>
-      <p>When you run <code>overload ui</code>, a Uvicorn/FastAPI server is launched locally.</p>
+      <p>When you run <code>overload ui</code>, a Uvicorn/FastAPI server starts locally.</p>
       <ul class="feature-list">
-        <li><strong>Event Bus:</strong> An internal pub/sub <code>EventBus</code> decouples the async engine from the UI transport layer. The engine emits progress ticks which the bus forwards to any subscribed WebSockets.</li>
-        <li><strong>Frontend:</strong> The UI is a Single Page Application (SPA) built entirely in vanilla JavaScript (no React/Vue) to avoid a build step and keep the PyPI package lightweight. It uses `Chart.js` for data visualization.</li>
+        <li><strong>Event Bus (<code>engine/events.py</code>):</strong> Internal pub/sub decouples the async engine from the UI transport layer. Progress ticks are forwarded to all subscribed WebSockets.</li>
+        <li><strong>WebSocket broadcast (<code>web/routes/ws.py</code>):</strong> Fans out <code>RunProgress</code> updates to all connected browser clients in real time.</li>
+        <li><strong>Frontend:</strong> Vanilla JavaScript SPA (no React, no build step). Chart.js for data visualisation. State navigated with a simple hash-based router in <code>app.js</code>.</li>
       </ul>
+
+      <h2 id="mcp">MCP Server</h2>
+      <p><code>mcp_server.py</code> uses <a href="https://github.com/jlowin/fastmcp" target="_blank" rel="noopener">FastMCP</a> to expose six tools over the stdio MCP protocol. The tools are plain Python functions importable and callable directly in tests — no MCP client required for unit testing. The server shares <code>engine/service.py</code> with the web API.</p>
 
       <!-- Footer -->
       <footer class="footer">

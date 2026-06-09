@@ -7,9 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.3.0] — 2026-06-06
+## [0.3.0] — 2026-06-09
 
 ### Added
+
+**Per-run report folders and response saving**
+- Each run now writes to its own folder: `reports/run_<run_id>/` containing `report.html`, `meta.json` (history sidecar), and — when `save_responses=True` — `responses.json` with all captured response bodies.
+- `responses.json` is kept separate from the HTML report so the report stays lean. Response bodies are no longer embedded in the report payload.
+- New `GET /api/runs/{id}/responses` endpoint — downloads `responses.json` as `responses_{id}.json`.
+- Results page shows a **Responses** download link next to HTML Report when bodies were captured.
+- CLI prints the responses path after a run when bodies were saved.
+- `load_run_history()` scans both the new `run_*/meta.json` layout and legacy flat `*_meta.json` sidecars.
+
+**Robust cancellation — partial reports always generated**
+- Fixed: stopping a test (graceful or hard-cancel via watchdog) now always produces a partial HTML report from whatever data was collected. Previously, a hard `task.cancel()` could discard all results.
+- `HttpClient` now accumulates every completed result into a `result_sink` owned by the service, so partial results survive even an `asyncio.CancelledError` propagating all the way up.
+- Both `status="stopped"` paths (cooperative cancel and watchdog hard-cancel) generate a report when `stats.total > 0`.
+
+**Request selection checkboxes (browser UI)**
+- Per-request checkboxes in the collection tree on the Collection page.
+- Folder checkboxes with indeterminate-state for partial folder selection.
+- Select All / Select None buttons with a live "N of M selected" counter.
+- If nothing is explicitly selected, the entire collection runs (no breaking change).
+- `selected_requests` is validated server-side; an explicitly empty array returns HTTP 400.
+
+
 
 **CSV data-driven testing**
 - New `--data PATH` flag on `overload run` and `overload sequential` — feed a CSV file and each row's column values fill `{{placeholders}}` in URLs, headers, body, and auth fields automatically.

@@ -133,7 +133,15 @@
         </div>
         <div class="card">
           <div class="card__title"><span class="icon">📊</span> Rich Reports</div>
-          <div class="card__desc">HTML reports with latency distribution, timeline scatter, per-second breakdown, and verdict section. Also exports JSON and CSV.</div>
+          <div class="card__desc">Each run gets its own folder with <code>report.html</code>, a history sidecar, and an optional <code>responses.json</code> for captured response bodies. Run history persists across restarts.</div>
+        </div>
+        <div class="card">
+          <div class="card__title"><span class="icon">📋</span> CSV Data-Driven Testing</div>
+          <div class="card__desc">Attach a CSV file and each row fills <code>{{placeholders}}</code> in URLs, headers, body, query params, and auth — round-robin across all requests.</div>
+        </div>
+        <div class="card">
+          <div class="card__title"><span class="icon">🤖</span> MCP Server</div>
+          <div class="card__desc">Run load tests from Claude Code, Codex CLI, or GitHub Copilot via the MCP protocol. Six tools: list patterns, inspect collection, start/stop/poll/fetch results.</div>
         </div>
         <div class="card">
           <div class="card__title"><span class="icon">🐍</span> Pure Python</div>
