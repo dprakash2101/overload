@@ -1,6 +1,8 @@
 window.CollectionPage = (function() {
   var collection = null;
   var selectedRequest = null;
+  var selectedIndices = null; // null = all selected; Set<number> = explicit subset
+  var dataAttached = false;
 
   function render(container) {
     container.innerHTML =
@@ -21,6 +23,14 @@ window.CollectionPage = (function() {
           '<div class="drop-zone-sub">Drop Postman Environment file</div>' +
           '<input type="file" id="envFile" accept=".json">' +
         '</div>' +
+      '</div>' +
+      '<div class="card" style="display:none" id="csvCard">' +
+        '<div class="card-title">Data file (CSV) <span style="font-weight:400;font-size:11px;color:var(--mut)">— optional</span></div>' +
+        '<div class="drop-zone" id="csvDropZone" style="padding:24px">' +
+          '<div class="drop-zone-sub">Drop CSV file — column names fill <code>{{placeholders}}</code> in the collection</div>' +
+          '<input type="file" id="csvFile" accept=".csv">' +
+        '</div>' +
+        '<div id="csvStatus" style="display:none;margin-top:8px;font-size:11px"></div>' +
       '</div>' +
       '<div id="collectionView" style="display:none"></div>';
 
@@ -44,7 +54,8 @@ window.CollectionPage = (function() {
         var collections = data.collections || [];
         var environments = data.environments || [];
 
-        if (collections.length) {
+        var csvFiles = data.csv_files || [];
+        if (collections.length || environments.length || csvFiles.length) {
           html += '<div class="detected-section"><div class="card">';
           html += '<div class="card-title">Found in ' + esc(data.working_dir) + '</div>';
           collections.forEach(function(c) {
@@ -67,6 +78,16 @@ window.CollectionPage = (function() {
             html += '<div class="detected-item-btn">Load</div>';
             html += '</div>';
           });
+          csvFiles.forEach(function(f) {
+            html += '<div class="detected-item" data-path="' + esc(f.path) + '" data-type="csv">';
+            html += '<div class="detected-item-info">';
+            html += '<div class="detected-item-icon">&#128202;</div>';
+            html += '<div><div class="detected-item-name">' + esc(f.filename) + '</div>';
+            html += '<div class="detected-item-meta">' + f.row_count + ' rows &mdash; columns: ' + f.columns.map(function(c) { return esc(c); }).join(', ') + '</div></div>';
+            html += '</div>';
+            html += '<div class="detected-item-btn">Use</div>';
+            html += '</div>';
+          });
           html += '</div></div>';
         }
 
@@ -78,7 +99,8 @@ window.CollectionPage = (function() {
               var path = el.dataset.path;
               var type = el.dataset.type;
               if (type === 'collection') loadLocalCollection(path);
-              else loadLocalEnvironment(path);
+              else if (type === 'environment') loadLocalEnvironment(path);
+              else if (type === 'csv') loadLocalCsv(path);
             });
           });
         }
@@ -124,6 +146,27 @@ window.CollectionPage = (function() {
     .catch(function(err) { App.toast('Failed to load: ' + err.message, 'error'); });
   }
 
+  function loadLocalCsv(path) {
+    fetch('/api/data/load-local', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: path })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.status === 'ok') {
+        dataAttached = true;
+        var csvCard = document.getElementById('csvCard');
+        if (csvCard) csvCard.style.display = 'block';
+        renderCsvStatus(data);
+        App.toast('Data loaded: ' + data.row_count + ' rows, ' + data.columns.length + ' columns', 'success');
+      } else {
+        App.toast('Error: ' + data.message, 'error');
+      }
+    })
+    .catch(function(err) { App.toast('Failed to load CSV: ' + err.message, 'error'); });
+  }
+
   function setupDropZone() {
     var zone = document.getElementById('dropZone');
     var input = document.getElementById('collectionFile');
@@ -149,6 +192,20 @@ window.CollectionPage = (function() {
       if (e.dataTransfer.files.length) uploadEnvironment(e.dataTransfer.files[0]);
     });
     envInput.addEventListener('change', function() { if (envInput.files.length) uploadEnvironment(envInput.files[0]); });
+
+    var csvZone = document.getElementById('csvDropZone');
+    var csvInput = document.getElementById('csvFile');
+    if (csvZone && csvInput) {
+      csvZone.addEventListener('click', function() { csvInput.click(); });
+      csvZone.addEventListener('dragover', function(e) { e.preventDefault(); csvZone.classList.add('dragover'); });
+      csvZone.addEventListener('dragleave', function() { csvZone.classList.remove('dragover'); });
+      csvZone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        csvZone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) uploadCsv(e.dataTransfer.files[0]);
+      });
+      csvInput.addEventListener('change', function() { if (csvInput.files.length) uploadCsv(csvInput.files[0]); });
+    }
   }
 
   function uploadCollection(file) {
@@ -187,18 +244,75 @@ window.CollectionPage = (function() {
       .catch(function(err) { App.toast('Upload failed: ' + err.message, 'error'); });
   }
 
+  function uploadCsv(file) {
+    var formData = new FormData();
+    formData.append('file', file);
+    fetch('/api/data/upload', { method: 'POST', body: formData })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (data.status === 'ok') {
+          dataAttached = true;
+          renderCsvStatus(data);
+          App.toast('Data loaded: ' + data.row_count + ' rows, ' + data.columns.length + ' columns', 'success');
+        } else {
+          App.toast('Error: ' + data.message, 'error');
+        }
+      })
+      .catch(function(err) { App.toast('Upload failed: ' + err.message, 'error'); });
+  }
+
+  function renderCsvStatus(data) {
+    var el = document.getElementById('csvStatus');
+    if (!el) return;
+    var html = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">';
+    html += '<span style="color:var(--ok)">&#10003; ' + data.row_count + ' rows, ' + data.columns.length + ' columns</span>';
+    if (data.matched_placeholders && data.matched_placeholders.length) {
+      html += '<span style="color:var(--ok)">Matched: ' + data.matched_placeholders.map(function(p) { return '<code>{{' + esc(p) + '}}</code>'; }).join(', ') + '</span>';
+    }
+    if (data.unmatched_placeholders && data.unmatched_placeholders.length) {
+      html += '<span style="color:var(--warn,#b45309)">No column for: ' + data.unmatched_placeholders.map(function(p) { return '<code>{{' + esc(p) + '}}</code>'; }).join(', ') + '</span>';
+    }
+    html += '<button class="btn btn-secondary" id="clearCsvBtn" style="padding:2px 8px;font-size:11px;margin-left:auto">Remove</button>';
+    html += '</div>';
+    el.innerHTML = html;
+    el.style.display = 'block';
+    var clearBtn = document.getElementById('clearCsvBtn');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function() {
+        fetch('/api/data/clear', { method: 'POST' })
+          .then(function() {
+            dataAttached = false;
+            el.style.display = 'none';
+            el.innerHTML = '';
+            App.toast('Data file removed', 'success');
+          });
+      });
+    }
+  }
+
   function renderCollection() {
     document.getElementById('uploadCard').style.display = 'none';
     document.getElementById('envCard').style.display = 'block';
+    document.getElementById('csvCard').style.display = 'block';
     var detected = document.getElementById('detectedFiles');
     if (detected) detected.style.display = 'none';
+
+    selectedIndices = null; // reset to all-selected on new collection load
 
     var view = document.getElementById('collectionView');
     view.style.display = 'block';
 
+    var selectionHtml =
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">' +
+        '<button class="btn btn-secondary" id="selectAllBtn" style="padding:2px 8px;font-size:11px">All</button>' +
+        '<button class="btn btn-secondary" id="selectNoneBtn" style="padding:2px 8px;font-size:11px">None</button>' +
+        '<span id="selectionCount" style="color:var(--mut);font-size:11px">' + collection.requests.length + ' of ' + collection.requests.length + ' selected</span>' +
+      '</div>';
+
     var html =
       '<div class="card">' +
         '<div class="card-title">' + esc(collection.name) + ' (' + collection.requests.length + ' requests)</div>' +
+        selectionHtml +
         '<div class="tree" id="collectionTree">' + renderTree(collection.requests) + '</div>' +
       '</div>';
 
@@ -227,11 +341,60 @@ window.CollectionPage = (function() {
     view.innerHTML = html;
 
     view.querySelectorAll('.tree-request').forEach(function(el) {
-      el.addEventListener('click', function() {
+      el.addEventListener('click', function(e) {
+        if (e.target.classList.contains('req-checkbox')) return;
         var idx = parseInt(el.dataset.idx);
         showRequestDetail(idx);
       });
     });
+
+    view.querySelectorAll('.req-checkbox').forEach(function(cb) {
+      cb.addEventListener('change', function(e) {
+        e.stopPropagation();
+        var idx = parseInt(cb.dataset.idx);
+        initSelectedIndices();
+        if (cb.checked) selectedIndices.add(idx);
+        else selectedIndices.delete(idx);
+        updateFolderCheckbox(cb);
+        updateSelectionCount();
+      });
+    });
+
+    view.querySelectorAll('.folder-checkbox').forEach(function(fcb) {
+      fcb.addEventListener('change', function(e) {
+        e.stopPropagation();
+        initSelectedIndices();
+        var folderEl = fcb.closest('.tree-folder');
+        folderEl.querySelectorAll('.req-checkbox').forEach(function(cb) {
+          var idx = parseInt(cb.dataset.idx);
+          cb.checked = fcb.checked;
+          if (fcb.checked) selectedIndices.add(idx);
+          else selectedIndices.delete(idx);
+        });
+        updateSelectionCount();
+      });
+    });
+
+    var selectAllBtn = document.getElementById('selectAllBtn');
+    if (selectAllBtn) {
+      selectAllBtn.addEventListener('click', function() {
+        selectedIndices = null;
+        view.querySelectorAll('.req-checkbox').forEach(function(cb) { cb.checked = true; });
+        view.querySelectorAll('.folder-checkbox').forEach(function(fcb) { fcb.checked = true; fcb.indeterminate = false; });
+        updateSelectionCount();
+      });
+    }
+
+    var selectNoneBtn = document.getElementById('selectNoneBtn');
+    if (selectNoneBtn) {
+      selectNoneBtn.addEventListener('click', function() {
+        initSelectedIndices();
+        selectedIndices.clear();
+        view.querySelectorAll('.req-checkbox').forEach(function(cb) { cb.checked = false; });
+        view.querySelectorAll('.folder-checkbox').forEach(function(fcb) { fcb.checked = false; fcb.indeterminate = false; });
+        updateSelectionCount();
+      });
+    }
 
     view.querySelectorAll('.var-input').forEach(function(input) {
       input.addEventListener('change', function() {
@@ -257,6 +420,34 @@ window.CollectionPage = (function() {
     });
   }
 
+  function initSelectedIndices() {
+    if (selectedIndices === null) {
+      selectedIndices = new Set();
+      for (var i = 0; i < collection.requests.length; i++) selectedIndices.add(i);
+    }
+  }
+
+  function updateSelectionCount() {
+    var el = document.getElementById('selectionCount');
+    if (!el) return;
+    var total = collection.requests.length;
+    var count = selectedIndices === null ? total : selectedIndices.size;
+    el.textContent = count + ' of ' + total + ' selected';
+  }
+
+  function updateFolderCheckbox(changedCb) {
+    var folderEl = changedCb.closest('.tree-folder');
+    if (!folderEl) return;
+    var fcb = folderEl.querySelector('.folder-checkbox');
+    if (!fcb) return;
+    var cbs = folderEl.querySelectorAll('.req-checkbox');
+    var checkedCount = 0;
+    cbs.forEach(function(cb) { if (cb.checked) checkedCount++; });
+    if (checkedCount === 0) { fcb.checked = false; fcb.indeterminate = false; }
+    else if (checkedCount === cbs.length) { fcb.checked = true; fcb.indeterminate = false; }
+    else { fcb.checked = false; fcb.indeterminate = true; }
+  }
+
   function renderTree(requests) {
     var folders = {};
     var rootRequests = [];
@@ -277,7 +468,10 @@ window.CollectionPage = (function() {
       var folder = folders[key];
       var name = folder.path[folder.path.length - 1];
       html += '<div class="tree-folder">';
-      html += '<div class="tree-folder-name"><span class="tree-folder-icon">&#9660;</span> ' + esc(name) + '</div>';
+      html += '<div class="tree-folder-name">';
+      html += '<input type="checkbox" class="folder-checkbox" checked style="margin-right:4px;cursor:pointer" onclick="event.stopPropagation()">';
+      html += '<span class="tree-folder-icon">&#9660;</span> ' + esc(name);
+      html += '</div>';
       html += '<div class="tree-children">';
       folder.requests.forEach(function(item) {
         html += renderRequestItem(item.req, item.idx);
@@ -293,7 +487,9 @@ window.CollectionPage = (function() {
   }
 
   function renderRequestItem(req, idx) {
+    var isChecked = selectedIndices === null || selectedIndices.has(idx);
     return '<div class="tree-request" data-idx="' + idx + '">' +
+      '<input type="checkbox" class="req-checkbox" data-idx="' + idx + '"' + (isChecked ? ' checked' : '') + ' style="margin-right:6px;cursor:pointer" onclick="event.stopPropagation()">' +
       '<span class="method-badge method-' + req.method + '">' + req.method + '</span>' +
       '<span>' + esc(req.name) + '</span>' +
     '</div>';
@@ -340,5 +536,12 @@ window.CollectionPage = (function() {
 
   function getCollection() { return collection; }
 
-  return { render: render, getCollection: getCollection };
+  function getSelectedIndices() {
+    if (selectedIndices === null) return null;
+    return Array.from(selectedIndices).sort(function(a, b) { return a - b; });
+  }
+
+  function getDataAttached() { return dataAttached; }
+
+  return { render: render, getCollection: getCollection, getSelectedIndices: getSelectedIndices, getDataAttached: getDataAttached };
 })();

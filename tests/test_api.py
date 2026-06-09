@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import time
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from overload.engine.models import RequestResult
 from overload.web.app import create_app
 
 
@@ -160,3 +165,384 @@ class TestConfigEndpoints:
     def test_load_config_not_found(self, client) -> None:
         resp = client.get("/api/config/load")
         assert resp.status_code == 404
+
+
+@pytest.fixture
+def multi_request_collection(tmp_path):
+    collection = {
+        "info": {
+            "name": "Multi",
+            "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+        },
+        "item": [
+            {"name": "R1", "request": {"method": "GET", "url": "https://a.com/1"}},
+            {"name": "R2", "request": {"method": "GET", "url": "https://a.com/2"}},
+            {"name": "R3", "request": {"method": "GET", "url": "https://a.com/3"}},
+        ],
+    }
+    coll_path = tmp_path / "multi.json"
+    coll_path.write_text(json.dumps(collection))
+    app = create_app(working_dir=str(tmp_path))
+    tc = TestClient(app)
+    tc.post("/api/collection/load-local", json={"path": str(coll_path)})
+    return tc
+
+
+class TestSelectedRequests:
+    def test_empty_selection_returns_400(self, multi_request_collection) -> None:
+        resp = multi_request_collection.post(
+            "/api/test/start",
+            json={"test_type": "burst", "config": {}, "selected_requests": []},
+        )
+        assert resp.status_code == 400
+        assert "No requests selected" in resp.json()["message"]
+
+    def test_valid_selection_accepted(self, multi_request_collection) -> None:
+        resp = multi_request_collection.post(
+            "/api/test/start",
+            json={"test_type": "burst", "config": {}, "selected_requests": [0, 2]},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    def test_no_selection_field_runs_all(self, multi_request_collection) -> None:
+        resp = multi_request_collection.post(
+            "/api/test/start",
+            json={"test_type": "burst", "config": {}},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+
+class TestStopGeneratesReport:
+    async def test_graceful_stop_produces_stopped_status(self, tmp_path) -> None:
+        """Stopping a test gracefully should produce status 'stopped' with a report."""
+        fake_results = [
+            RequestResult(
+                request_name="req",
+                method="GET",
+                url="https://a.com",
+                status_code=200,
+                latency_ms=50.0,
+                timestamp=float(i),
+            )
+            for i in range(5)
+        ]
+
+        async def fake_execute(client, requests, variables, config, run_id, cancel_event, on_progress):
+            cancel_event.set()
+            return fake_results
+
+        mock_pattern = AsyncMock()
+        mock_pattern.execute.side_effect = fake_execute
+
+        collection = {
+            "info": {
+                "name": "Stop Test",
+                "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+            },
+            "item": [{"name": "R1", "request": {"method": "GET", "url": "https://a.com"}}],
+        }
+        coll_path = tmp_path / "coll.json"
+        coll_path.write_text(json.dumps(collection))
+
+        with patch("overload.engine.service.get_pattern", return_value=mock_pattern):
+            app = create_app(working_dir=str(tmp_path))
+            from httpx import ASGITransport, AsyncClient
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                await ac.post("/api/collection/load-local", json={"path": str(coll_path)})
+                resp = await ac.post("/api/test/start", json={"test_type": "burst", "config": {}})
+                assert resp.status_code == 200
+                run_id = resp.json()["run_id"]
+
+                # Give the background task time to complete
+                await asyncio.sleep(0.5)
+
+                runs_resp = await ac.get("/api/runs")
+                runs = {r["run_id"]: r for r in runs_resp.json()["runs"]}
+
+                assert run_id in runs
+                assert runs[run_id]["status"] == "stopped"
+
+                data_resp = await ac.get(f"/api/runs/{run_id}/data")
+                data = data_resp.json()
+                assert data["report_path"] is not None
+                assert Path(data["report_path"]).exists()
+
+    async def test_hard_cancel_still_stores_stopped_status(self, tmp_path) -> None:
+        """Hard-cancelling the task should still result in status 'stopped', not 'cancelled'."""
+        collection = {
+            "info": {
+                "name": "Hard Cancel",
+                "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+            },
+            "item": [{"name": "R1", "request": {"method": "GET", "url": "https://a.com"}}],
+        }
+        coll_path = tmp_path / "coll2.json"
+        coll_path.write_text(json.dumps(collection))
+
+        hang_event = asyncio.Event()
+
+        async def fake_execute_hang(client, requests, variables, config, run_id, cancel_event, on_progress):
+            await hang_event.wait()  # blocks until cancelled
+            return []
+
+        mock_pattern = AsyncMock()
+        mock_pattern.execute.side_effect = fake_execute_hang
+
+        with patch("overload.engine.service.get_pattern", return_value=mock_pattern):
+            app = create_app(working_dir=str(tmp_path))
+            from httpx import ASGITransport, AsyncClient
+
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                await ac.post("/api/collection/load-local", json={"path": str(coll_path)})
+                resp = await ac.post("/api/test/start", json={"test_type": "burst", "config": {}})
+                run_id = resp.json()["run_id"]
+
+                await asyncio.sleep(0.1)
+
+                # Directly cancel the task (simulates watchdog)
+                from overload.web.routes.api import _state
+                task = _state.get("current_task")
+                if task and not task.done():
+                    task.cancel()
+
+                await asyncio.sleep(0.3)
+
+                data_resp = await ac.get(f"/api/runs/{run_id}/data")
+                data = data_resp.json()
+                assert data.get("status") == "stopped"
+
+
+class TestCsvUpload:
+    def test_upload_csv_bytes_not_path(self, multi_request_collection) -> None:
+        """Uploading CSV bytes must succeed — not raise FileNotFoundError from from_csv()."""
+        csv_content = b"email,token\nalice@a.com,tok-a\nbob@b.com,tok-b\n"
+        resp = multi_request_collection.post(
+            "/api/data/upload",
+            files={"file": ("data.csv", csv_content, "text/csv")},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert data["row_count"] == 2
+        assert "email" in data["columns"]
+
+    def test_upload_csv_with_bom(self, multi_request_collection) -> None:
+        csv_content = b"\xef\xbb\xbfemail,token\nalice@a.com,tok-a\n"
+        resp = multi_request_collection.post(
+            "/api/data/upload",
+            files={"file": ("data.csv", csv_content, "text/csv")},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["columns"][0] == "email"
+
+
+class TestSelectedRequestsValidation:
+    def test_negative_index_rejected(self, multi_request_collection) -> None:
+        resp = multi_request_collection.post(
+            "/api/test/start",
+            json={"test_type": "burst", "config": {}, "selected_requests": [-1]},
+        )
+        assert resp.status_code == 400
+        assert "Invalid request indices" in resp.json()["message"]
+
+    def test_out_of_range_index_rejected(self, multi_request_collection) -> None:
+        resp = multi_request_collection.post(
+            "/api/test/start",
+            json={"test_type": "burst", "config": {}, "selected_requests": [999]},
+        )
+        assert resp.status_code == 400
+        assert "Invalid request indices" in resp.json()["message"]
+
+    def test_mixed_valid_and_invalid_rejected(self, multi_request_collection) -> None:
+        resp = multi_request_collection.post(
+            "/api/test/start",
+            json={"test_type": "burst", "config": {}, "selected_requests": [0, -1]},
+        )
+        assert resp.status_code == 400
+
+
+class TestRunHistory:
+    def test_historical_runs_loaded_from_disk(self, tmp_path) -> None:
+        """Runs saved as _meta.json sidecars must appear in /api/runs after restart."""
+        import json as _json
+        from overload.engine import service
+
+        # Write a fake sidecar as if a previous session had run a test
+        reports_dir = tmp_path / "reports"
+        reports_dir.mkdir()
+        sidecar = {
+            "run_id": "burst_historical_abc",
+            "test_type": "burst",
+            "status": "complete",
+            "stats": {"total": 50, "ok": 50, "errors": 0, "avg_rps": 12.5, "duration_seconds": 4.0,
+                      "latency": {"median": 30, "p95": 80, "p99": 100, "max": 150},
+                      "per_second": [], "status_codes": {}, "timeline": [], "request_log": []},
+            "verdict": None,
+            "ramp_rows": [],
+            "report_path": str(reports_dir / "overload_report_burst_historical_abc.html"),
+        }
+        (reports_dir / "burst_historical_abc_meta.json").write_text(_json.dumps(sidecar))
+
+        service._runs.clear()
+
+        app = create_app(working_dir=str(tmp_path))
+        tc = TestClient(app)
+        resp = tc.get("/api/runs")
+        assert resp.status_code == 200
+        run_ids = [r["run_id"] for r in resp.json()["runs"]]
+        assert "burst_historical_abc" in run_ids
+
+    async def test_sidecar_written_after_run(self, tmp_path) -> None:
+        """After a test completes, a meta.json sidecar must exist in the run folder."""
+        from unittest.mock import AsyncMock, patch
+
+        from overload.engine.models import RequestResult
+
+        fake_results = [
+            RequestResult(request_name="r", method="GET", url="https://a.com",
+                          status_code=200, latency_ms=20.0, timestamp=float(i))
+            for i in range(3)
+        ]
+
+        async def fake_execute(client, requests, variables, config, run_id, cancel_event, on_progress):
+            return fake_results
+
+        mock_pattern = AsyncMock()
+        mock_pattern.execute.side_effect = fake_execute
+
+        coll_data = {
+            "info": {"name": "Sidecar", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+            "item": [{"name": "R1", "request": {"method": "GET", "url": "https://a.com"}}],
+        }
+        coll_path = tmp_path / "sidecar.json"
+        coll_path.write_text(json.dumps(coll_data))
+
+        with patch("overload.engine.service.get_pattern", return_value=mock_pattern):
+            from httpx import ASGITransport, AsyncClient
+
+            app = create_app(working_dir=str(tmp_path))
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                await ac.post("/api/collection/load-local", json={"path": str(coll_path)})
+                r = await ac.post("/api/test/start", json={"test_type": "burst", "config": {}})
+                run_id = r.json()["run_id"]
+                await asyncio.sleep(0.5)
+
+        reports_dir = tmp_path / "reports"
+        sidecar = reports_dir / f"run_{run_id}" / "meta.json"
+        assert sidecar.exists(), f"Sidecar not found at {sidecar}"
+        report = reports_dir / f"run_{run_id}" / "report.html"
+        assert report.exists(), f"Report not found at {report}"
+        import json as _json
+        data = _json.loads(sidecar.read_text())
+        assert data["run_id"] == run_id
+        assert data["status"] == "complete"
+
+
+class TestSpaShell:
+    def test_docs_nav_and_script_present(self, client) -> None:
+        """The SPA shell must include the Docs nav link and docs.js script tag."""
+        resp = client.get("/")
+        assert resp.status_code == 200
+        html = resp.text
+        assert 'data-page="docs"' in html
+        assert "docs.js" in html
+
+
+class TestSelectedRequestFiltering:
+    @pytest.mark.asyncio
+    async def test_selected_indices_filter_requests_passed_to_runner(self, tmp_path) -> None:
+        """selected_requests=[0, 2] must pass only requests 0 and 2 to the pattern executor."""
+        captured_requests: list = []
+
+        async def fake_execute(client, requests, variables, config, run_id, cancel_event, on_progress):
+            captured_requests.extend(requests)
+            return []
+
+        mock_pattern = AsyncMock()
+        mock_pattern.execute.side_effect = fake_execute
+
+        collection = {
+            "info": {
+                "name": "Filter Test",
+                "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+            },
+            "item": [
+                {"name": "R1", "request": {"method": "GET", "url": "https://a.com/1"}},
+                {"name": "R2", "request": {"method": "GET", "url": "https://a.com/2"}},
+                {"name": "R3", "request": {"method": "GET", "url": "https://a.com/3"}},
+            ],
+        }
+        coll_path = tmp_path / "filter.json"
+        coll_path.write_text(json.dumps(collection))
+
+        with patch("overload.engine.service.get_pattern", return_value=mock_pattern):
+            from httpx import ASGITransport, AsyncClient
+
+            app = create_app(working_dir=str(tmp_path))
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                await ac.post("/api/collection/load-local", json={"path": str(coll_path)})
+                resp = await ac.post(
+                    "/api/test/start",
+                    json={"test_type": "burst", "config": {}, "selected_requests": [0, 2]},
+                )
+                assert resp.status_code == 200
+                await asyncio.sleep(0.3)
+
+        assert len(captured_requests) == 2
+        urls = {r.url_raw for r in captured_requests}
+        assert "https://a.com/1" in urls
+        assert "https://a.com/3" in urls
+        assert "https://a.com/2" not in urls
+
+
+class TestRunResponsesEndpoint:
+    async def test_responses_served_when_captured(self, tmp_path) -> None:
+        """/api/runs/{id}/responses returns the saved bodies; 404 when none captured."""
+        from unittest.mock import AsyncMock, patch
+
+        from overload.engine.models import RequestResult
+
+        with_bodies = [
+            RequestResult(request_name="r", method="GET", url="https://a.com",
+                          status_code=200, latency_ms=12.0, timestamp=float(i),
+                          response_body='{"ok":true}')
+            for i in range(3)
+        ]
+
+        async def fake_execute(client, requests, variables, config, run_id, cancel_event, on_progress):
+            return with_bodies
+
+        mock_pattern = AsyncMock()
+        mock_pattern.execute.side_effect = fake_execute
+
+        coll_data = {
+            "info": {"name": "Resp", "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"},
+            "item": [{"name": "R1", "request": {"method": "GET", "url": "https://a.com"}}],
+        }
+        coll_path = tmp_path / "resp.json"
+        coll_path.write_text(json.dumps(coll_data))
+
+        with patch("overload.engine.service.get_pattern", return_value=mock_pattern):
+            from httpx import ASGITransport, AsyncClient
+
+            app = create_app(working_dir=str(tmp_path))
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                await ac.post("/api/collection/load-local", json={"path": str(coll_path)})
+                r = await ac.post(
+                    "/api/test/start",
+                    json={"test_type": "burst", "config": {"save_responses": True}},
+                )
+                run_id = r.json()["run_id"]
+                await asyncio.sleep(0.5)
+
+                resp = await ac.get(f"/api/runs/{run_id}/responses")
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["count"] == 3
+                assert data["responses"][0]["response_body"] == '{"ok":true}'
+
+                missing = await ac.get("/api/runs/does-not-exist/responses")
+                assert missing.status_code == 404

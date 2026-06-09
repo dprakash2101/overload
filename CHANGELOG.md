@@ -7,6 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.0] — 2026-06-09
+
+### Added
+
+**Per-run report folders and response saving**
+- Each run now writes to its own folder: `reports/run_<run_id>/` containing `report.html`, `meta.json` (history sidecar), and — when `save_responses=True` — `responses.json` with all captured response bodies.
+- `responses.json` is kept separate from the HTML report so the report stays lean. Response bodies are no longer embedded in the report payload.
+- New `GET /api/runs/{id}/responses` endpoint — downloads `responses.json` as `responses_{id}.json`.
+- Results page shows a **Responses** download link next to HTML Report when bodies were captured.
+- CLI prints the responses path after a run when bodies were saved.
+- `load_run_history()` scans both the new `run_*/meta.json` layout and legacy flat `*_meta.json` sidecars.
+
+**Robust cancellation — partial reports always generated**
+- Fixed: stopping a test (graceful or hard-cancel via watchdog) now always produces a partial HTML report from whatever data was collected. Previously, a hard `task.cancel()` could discard all results.
+- `HttpClient` now accumulates every completed result into a `result_sink` owned by the service, so partial results survive even an `asyncio.CancelledError` propagating all the way up.
+- Both `status="stopped"` paths (cooperative cancel and watchdog hard-cancel) generate a report when `stats.total > 0`.
+
+**Request selection checkboxes (browser UI)**
+- Per-request checkboxes in the collection tree on the Collection page.
+- Folder checkboxes with indeterminate-state for partial folder selection.
+- Select All / Select None buttons with a live "N of M selected" counter.
+- If nothing is explicitly selected, the entire collection runs (no breaking change).
+- `selected_requests` is validated server-side; an explicitly empty array returns HTTP 400.
+
+
+
+**CSV data-driven testing**
+- New `--data PATH` flag on `overload run` and `overload sequential` — feed a CSV file and each row's column values fill `{{placeholders}}` in URLs, headers, body, and auth fields automatically.
+- `DataSource` class (`overload.collection.data_source`) — accepts a file path or file-like object, strips UTF-8 BOM, round-robins rows (`index % len(rows)`) across concurrent requests.
+- `VariableContext.derive(extra)` — prepends a CSV-row scope at the top of the existing scope chain (CSV row > runtime > environment > collection) without mutating the base context; safe for concurrent use.
+- `HttpClient` accepts `data_source: DataSource | None = None`; when `None` behaviour is identical to before (no breaking change).
+- Browser UI — "Data file (CSV)" drop-zone card on the Collection page (shown after a collection is loaded). Drag-and-drop or file-picker upload; shows row count, column names, matched `{{placeholders}}` (green ✓), and unmatched placeholders (amber warning). Remove button clears the attached source.
+- New API endpoints: `POST /api/data/upload`, `POST /api/data/load-local`, `POST /api/data/clear`, `GET /api/data/status`.
+- `GET /api/detect` response now includes a `csv_files` array listing CSV files in the working directory.
+- 13 new tests in `tests/test_data_source.py`.
+
+**Request selection**
+- Cherry-pick a subset of requests before running: per-request checkboxes in the collection tree, Select All / Select None buttons, and a live "N of M selected" counter.
+- Folder checkboxes with indeterminate-state support for partial folder selection.
+- `POST /api/test/start` returns HTTP 400 (`"No requests selected"`) when `selected_requests` is an explicitly empty array.
+- Live dashboard title shows "N of M requests" when a subset is active.
+
+**Report on Stop**
+- Stopping a test mid-run now generates a partial report instead of discarding all data.
+- `POST /api/test/stop` uses cooperative cancellation: sets a cancel event and gives the pattern a 10-second grace window to return partial results. The watchdog hard-cancels only if the task is still running after the grace window.
+- Runs stopped early are recorded with status `"stopped"` (distinct from `"complete"`). The Results table and report viewer show action buttons for both statuses.
+
+**In-app documentation**
+- New "Docs" tab in the browser UI — two-pane layout with a topic sidebar and content pane; all navigation is client-side with no page reload.
+- 8 topics: Getting Started, Collections & Variables, CSV Data Files, Authentication, Test Patterns, Assertions, CI/CD, Reports.
+- `overload` startup banner now links to the Docs tab and the GitHub Pages site.
+
+**Beginner-friendly live dashboard**
+- `?` tooltip chips on all 6 live KPI labels (Total, Success, Avg Latency, Current RPS, Elapsed, Errors).
+- "Beginner mode" toggle button in the live dashboard header. When ON, shows a concise plain-English sub-label under each KPI value. State is persisted in `localStorage`.
+- `friendlyPhase()` function maps every pattern phase string (ramp-up, holding, spike, probing, cooldown, etc.) to a plain-English sentence shown below the progress bar throughout the run.
+
+### Changed
+
+- `POST /api/test/stop` behaviour: cooperative cancellation with 10-second grace window (previously immediate `task.cancel()`).
+- `GET /api/detect` response: now includes `csv_files` array alongside existing `collections` and `environments`.
+
+**MCP server (Claude Code, Codex CLI, GitHub Copilot)**
+- New `overload mcp` subcommand — starts a stdio MCP server exposing Overload as tools for any MCP client.
+- Install: `pip install "overload-cli[mcp]"` (FastMCP is an optional extra; core install stays lean).
+- Six MCP tools: `list_patterns`, `describe_collection`, `run_load_test`, `get_run_status`, `get_run_results`, `stop_run`.
+- `run_load_test` returns a `run_id` immediately (non-blocking); poll `get_run_status` while running, then fetch results via `get_run_results`. Guardrails: concurrency capped at 200, total requests at 10,000.
+- Register with Claude Code: `claude mcp add overload -- overload mcp`
+- Register with Codex CLI: `codex mcp add overload -- overload mcp`
+- Register with GitHub Copilot (VS Code): add `"overload": {"command": "overload", "args": ["mcp"]}` under `"mcpServers"` in VS Code settings.
+- New `src/overload/engine/service.py` — shared run orchestration used by both the web API and the MCP server; no duplicated logic.
+- 18 new tests in `tests/test_mcp_server.py`.
+
+### Tests
+
+- 218 tests total, all passing (up from 182).
+- 13 new tests in `tests/test_data_source.py` covering `DataSource`, `VariableContext.derive`, and `HttpClient` CSV cycling.
+- 5 new tests in `tests/test_api.py` covering request selection validation and stop-generates-report paths.
+- 18 new tests in `tests/test_mcp_server.py` covering all 6 MCP tools and the shared `engine/service.py` orchestration.
+
+---
+
 ## [0.2.1] — 2026-06-06
 
 ### Fixed
@@ -118,5 +200,7 @@ First public release.
 - 124 unit tests across all layers (assertions, auth, collection parser, variables, HTTP client, models, report, API)
 - GitHub Actions CI matrix: Python 3.10 · 3.11 · 3.12 · 3.13
 
+[0.3.0]: https://github.com/dprakash2101/overload/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/dprakash2101/overload/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dprakash2101/overload/compare/v0.1.1...v0.2.0
 [0.1.0]: https://github.com/dprakash2101/overload/releases/tag/v0.1.0

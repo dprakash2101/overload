@@ -5,8 +5,12 @@ import random
 import re
 import time
 import uuid
+from typing import TYPE_CHECKING
 
 from overload.collection.models import CollectionVariable
+
+if TYPE_CHECKING:
+    from overload.collection.models import ParsedCollection
 
 logger = logging.getLogger(__name__)
 
@@ -80,5 +84,45 @@ class VariableContext:
     def resolve_dict(self, d: dict[str, str]) -> dict[str, str]:
         return {self.resolve(k): self.resolve(v) for k, v in d.items()}
 
+    def derive(self, extra: dict[str, str]) -> VariableContext:
+        new = VariableContext.__new__(VariableContext)
+        new._scopes = [extra, *self._scopes]
+        new._unresolved = self._unresolved
+        return new
+
     def resolve_url(self, url: str) -> str:
         return self.resolve(url)
+
+
+def discover_placeholders(collection: ParsedCollection) -> set[str]:
+    """Return all {{placeholder}} variable names used anywhere in a collection.
+
+    Scans: url_raw, header keys+values, query param keys+values, body content,
+    request auth params (keys+values), and collection-level auth params.
+    """
+    found: set[str] = set()
+
+    def _scan(text: str) -> None:
+        for name in VARIABLE_PATTERN.findall(text):
+            found.add(name)
+
+    if collection.auth:
+        for k, v in collection.auth.params.items():
+            _scan(k)
+            _scan(v)
+
+    for req in collection.requests:
+        _scan(req.url_raw)
+        for k, v in req.headers.items():
+            _scan(k)
+            _scan(v)
+        for qp in req.query_params:
+            _scan(qp.key)
+            _scan(qp.value)
+        _scan(str(req.body.content) if req.body.content else "")
+        if req.auth:
+            for k, v in req.auth.params.items():
+                _scan(k)
+                _scan(v)
+
+    return found

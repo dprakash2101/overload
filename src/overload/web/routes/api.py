@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import os
@@ -10,19 +11,14 @@ from typing import Any
 from fastapi import APIRouter, File, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
+from overload.collection.data_source import DataSource
 from overload.collection.environment import parse_environment
 from overload.collection.models import ParsedCollection
 from overload.collection.parser import parse_collection
-from overload.collection.variables import VariableContext
+from overload.collection.variables import VariableContext, discover_placeholders
 from overload.config_file import extract_config, extract_test_type, extract_thresholds, load_config, save_config
-from overload.engine.assertions import evaluate, print_verdict, write_junit_xml
-from overload.engine.http_client import HttpClient
-from overload.engine.load_patterns import get_pattern
-from overload.engine.models import PatternConfig, RunProgress, Stats, TestType, Threshold
-from overload.engine.rate_limiter import run_rate_limit_test
-from overload.engine.runner import run_sequential
-from overload.report.exporters import export_csv, export_json
-from overload.report.generator import generate_report
+from overload.engine import service as _engine_service
+from overload.engine.models import PatternConfig, RunProgress, Threshold
 from overload.utils.naming import generate_run_id
 
 logger = logging.getLogger(__name__)
@@ -33,9 +29,10 @@ _state: dict[str, Any] = {
     "collection": None,
     "environment": None,
     "variables": None,
-    "runs": {},
+    "data_source": None,
     "current_task": None,
     "cancel_event": None,
+    "current_run_id": None,
     "working_dir": os.getcwd(),
 }
 
@@ -43,10 +40,11 @@ _state: dict[str, Any] = {
 def _detect_postman_files(directory: str) -> dict[str, list[dict]]:
     collections: list[dict] = []
     environments: list[dict] = []
+    csv_files: list[dict] = []
 
     dir_path = Path(directory)
     if not dir_path.is_dir():
-        return {"collections": collections, "environments": environments}
+        return {"collections": collections, "environments": environments, "csv_files": csv_files}
 
     for f in sorted(dir_path.glob("*.json")):
         try:
@@ -73,7 +71,19 @@ def _detect_postman_files(directory: str) -> dict[str, list[dict]]:
         except (json.JSONDecodeError, OSError):
             continue
 
-    return {"collections": collections, "environments": environments}
+    for f in sorted(dir_path.glob("*.csv")):
+        try:
+            ds = DataSource.from_csv(str(f))
+            csv_files.append({
+                "filename": f.name,
+                "path": str(f),
+                "row_count": len(ds.rows),
+                "columns": ds.columns,
+            })
+        except OSError:
+            continue
+
+    return {"collections": collections, "environments": environments, "csv_files": csv_files}
 
 
 def _count_requests(items: list) -> int:
@@ -185,6 +195,81 @@ async def upload_environment(file: UploadFile = File(...)) -> JSONResponse:
         return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
 
 
+@router.post("/data/upload")
+async def upload_data(file: UploadFile = File(...)) -> JSONResponse:
+    try:
+        content = await file.read()
+        ds = DataSource.from_csv(io.BytesIO(content))
+        _state["data_source"] = ds
+        collection: ParsedCollection | None = _state.get("collection")
+        matched: list[str] = []
+        unmatched: list[str] = []
+        if collection:
+            placeholders = discover_placeholders(collection)
+            col_set = set(ds.columns)
+            matched = sorted(placeholders & col_set)
+            unmatched = sorted(placeholders - col_set)
+        logger.info("CSV data loaded: %d rows, %d columns", len(ds.rows), len(ds.columns))
+        return JSONResponse({
+            "status": "ok",
+            "row_count": len(ds.rows),
+            "columns": ds.columns,
+            "matched_placeholders": matched,
+            "unmatched_placeholders": unmatched,
+        })
+    except Exception as exc:
+        logger.exception("Error loading CSV")
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
+
+
+@router.post("/data/load-local")
+async def load_local_data(body: dict) -> JSONResponse:
+    filepath = body.get("path", "")
+    if not filepath or not os.path.isfile(filepath):
+        return JSONResponse({"status": "error", "message": "File not found"}, status_code=400)
+    try:
+        ds = DataSource.from_csv(filepath)
+        _state["data_source"] = ds
+        collection: ParsedCollection | None = _state.get("collection")
+        matched: list[str] = []
+        unmatched: list[str] = []
+        if collection:
+            placeholders = discover_placeholders(collection)
+            col_set = set(ds.columns)
+            matched = sorted(placeholders & col_set)
+            unmatched = sorted(placeholders - col_set)
+        logger.info("CSV data loaded from disk: %s (%d rows)", filepath, len(ds.rows))
+        return JSONResponse({
+            "status": "ok",
+            "row_count": len(ds.rows),
+            "columns": ds.columns,
+            "matched_placeholders": matched,
+            "unmatched_placeholders": unmatched,
+        })
+    except Exception as exc:
+        logger.exception("Error loading CSV from disk")
+        return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
+
+
+@router.post("/data/clear")
+async def clear_data() -> JSONResponse:
+    _state["data_source"] = None
+    logger.info("Data source cleared")
+    return JSONResponse({"status": "ok"})
+
+
+@router.get("/data/status")
+async def data_status() -> JSONResponse:
+    ds: DataSource | None = _state.get("data_source")
+    if ds is None:
+        return JSONResponse({"attached": False})
+    return JSONResponse({
+        "attached": True,
+        "row_count": len(ds.rows),
+        "columns": ds.columns,
+    })
+
+
 @router.post("/variables/update")
 async def update_variables(body: dict) -> JSONResponse:
     overrides = body.get("variables", {})
@@ -219,6 +304,20 @@ async def start_test(body: dict) -> JSONResponse:
     config_dict = body.get("config", {})
     selected_indices = body.get("selected_requests")
 
+    if selected_indices is not None:
+        if len(selected_indices) == 0:
+            return JSONResponse(
+                {"status": "error", "message": "No requests selected"},
+                status_code=400,
+            )
+        n = len(collection.requests)
+        invalid = [i for i in selected_indices if not isinstance(i, int) or i < 0 or i >= n]
+        if invalid:
+            return JSONResponse(
+                {"status": "error", "message": f"Invalid request indices (must be 0–{n - 1}): {invalid}"},
+                status_code=400,
+            )
+
     thresholds: list[Threshold] = []
     for entry in body.get("thresholds", []):
         if isinstance(entry, dict) and "metric" in entry:
@@ -236,9 +335,10 @@ async def start_test(body: dict) -> JSONResponse:
 
     requests = collection.requests
     if selected_indices is not None:
-        requests = [collection.requests[i] for i in selected_indices if i < len(collection.requests)]
+        requests = [collection.requests[i] for i in selected_indices]
 
     variables = _state.get("variables") or VariableContext(collection_vars=collection.variables)
+    data_source = _state.get("data_source")
     output_dir = os.path.join(_state.get("working_dir", os.getcwd()), "reports")
 
     from overload.web.routes.ws import broadcast_progress
@@ -247,112 +347,22 @@ async def start_test(body: dict) -> JSONResponse:
         await broadcast_progress(run_id, progress)
 
     async def _run_test() -> None:
-        stats = Stats()
-        ramp_rows: list[dict] = []
-
-        try:
-            async with HttpClient(
-                timeout=config.timeout_seconds,
-                verify_ssl=config.verify_ssl,
-                follow_redirects=config.follow_redirects,
-                max_connections=config.concurrency * 2,
-                save_responses=config.save_responses,
-            ) as client:
-                await client.prepare_collection_auth(collection.auth, variables)
-                if test_type == TestType.SEQUENTIAL:
-                    results = await run_sequential(
-                        client, requests, variables, config,
-                        run_id, cancel_event, on_progress,
-                    )
-                    stats.add_all(results)
-                elif test_type == TestType.RATE_LIMIT:
-                    results, ramp_rows = await run_rate_limit_test(
-                        client, requests, variables, config,
-                        run_id, cancel_event, on_progress,
-                    )
-                    stats.add_all(results)
-                else:
-                    pattern = get_pattern(test_type)
-                    results = await pattern.execute(
-                        client, requests, variables, config,
-                        run_id, cancel_event, on_progress,
-                    )
-                    stats.add_all(results)
-
-            computed = stats.compute()
-
-            verdict_data = None
-            if thresholds and computed:
-                verdict = evaluate(computed, thresholds)
-                verdict_data = {
-                    "passed": verdict.passed,
-                    "results": [
-                        {
-                            "metric": r.metric,
-                            "operator": r.operator,
-                            "expected": r.expected,
-                            "actual": round(r.actual, 2),
-                            "passed": r.passed,
-                        }
-                        for r in verdict.results
-                    ],
-                }
-
-            report_config = {
-                "test_type": test_type,
-                "concurrency": config.concurrency,
-                "total_requests_configured": config.total_requests,
-            }
-            report_path = generate_report(
-                stats, test_type, report_config,
-                run_id=run_id, ramp_rows=ramp_rows,
-                output_dir=output_dir,
-                verdict=verdict_data,
-            )
-
-            _state["runs"][run_id] = {
-                "run_id": run_id,
-                "test_type": test_type,
-                "stats": computed,
-                "ramp_rows": ramp_rows,
-                "report_path": report_path,
-                "status": "complete",
-                "verdict": verdict_data,
-            }
-
-            await broadcast_progress(run_id, RunProgress(
-                run_id=run_id,
-                total_requests=stats.total,
-                completed_requests=stats.total,
-                current_rps=0,
-                phase="complete",
-                elapsed_seconds=computed["duration_seconds"] if computed else 0,
-            ))
-            logger.info("Test complete: %s (%d requests)", run_id, stats.total)
-
-        except asyncio.CancelledError:
-            logger.info("Test cancelled: %s", run_id)
-            computed = stats.compute() if stats.total > 0 else None
-            _state["runs"][run_id] = {
-                "run_id": run_id,
-                "test_type": test_type,
-                "stats": computed,
-                "status": "cancelled",
-            }
-            await broadcast_progress(run_id, RunProgress(
-                run_id=run_id,
-                total_requests=stats.total,
-                completed_requests=stats.total,
-                current_rps=0,
-                phase="complete (stopped)",
-                elapsed_seconds=computed["duration_seconds"] if computed else 0,
-            ))
-        except Exception:
-            logger.exception("Test failed: %s", run_id)
-            _state["runs"][run_id] = {"run_id": run_id, "status": "error"}
+        result = await _engine_service.run_test(
+            collection, test_type, config,
+            variables=variables,
+            requests=requests,
+            thresholds=thresholds,
+            data_source=data_source,
+            output_dir=output_dir,
+            run_id=run_id,
+            on_progress=on_progress,
+            cancel_event=cancel_event,
+        )
+        logger.info("Test %s: %s", result.status, run_id)
 
     task = asyncio.create_task(_run_test())
     _state["current_task"] = task
+    _state["current_run_id"] = run_id
 
     return JSONResponse({"status": "ok", "run_id": run_id})
 
@@ -362,22 +372,29 @@ async def stop_test() -> JSONResponse:
     cancel_event = _state.get("cancel_event")
     if cancel_event:
         cancel_event.set()
-        logger.info("Stop signal sent")
+        logger.info("Stop signal sent — waiting for graceful shutdown")
     task = _state.get("current_task")
     if task and not task.done():
-        task.cancel()
-        logger.info("Task cancelled")
+        async def _watchdog(t: asyncio.Task) -> None:  # type: ignore[type-arg]
+            await asyncio.sleep(10)
+            if not t.done():
+                t.cancel()
+                logger.info("Watchdog: hard-cancelled task after grace window")
+        asyncio.create_task(_watchdog(task))
     return JSONResponse({"status": "ok"})
 
 
 @router.get("/runs")
 async def list_runs() -> JSONResponse:
+    reports_dir = os.path.join(_state.get("working_dir", os.getcwd()), "reports")
+    _engine_service.load_run_history(reports_dir)
     runs = []
-    for run_id, run_data in _state["runs"].items():
+    for run_id, run_data in _engine_service._runs.items():
         summary = {
             "run_id": run_id,
             "test_type": run_data.get("test_type", ""),
             "status": run_data.get("status", ""),
+            "has_responses": bool(run_data.get("responses_path")),
         }
         stats = run_data.get("stats")
         if stats:
@@ -395,7 +412,7 @@ async def list_runs() -> JSONResponse:
 
 @router.get("/runs/{run_id}/data")
 async def get_run_data(run_id: str) -> JSONResponse:
-    run_data = _state["runs"].get(run_id)
+    run_data = _engine_service.get_run(run_id)
     if not run_data:
         return JSONResponse({"status": "error", "message": "Run not found"}, status_code=404)
     return JSONResponse(run_data)
@@ -403,15 +420,31 @@ async def get_run_data(run_id: str) -> JSONResponse:
 
 @router.get("/runs/{run_id}/report")
 async def get_run_report(run_id: str) -> FileResponse:
-    run_data = _state["runs"].get(run_id)
+    run_data = _engine_service.get_run(run_id)
     if not run_data or not run_data.get("report_path"):
         return JSONResponse({"status": "error", "message": "Report not found"}, status_code=404)
     return FileResponse(run_data["report_path"], media_type="text/html")
 
 
+@router.get("/runs/{run_id}/responses")
+async def get_run_responses(run_id: str) -> FileResponse:
+    run_data = _engine_service.get_run(run_id)
+    responses_path = run_data.get("responses_path") if run_data else None
+    if not responses_path or not os.path.isfile(responses_path):
+        return JSONResponse(
+            {"status": "error", "message": "No saved responses for this run"},
+            status_code=404,
+        )
+    return FileResponse(
+        responses_path,
+        media_type="application/json",
+        filename=f"responses_{run_id}.json",
+    )
+
+
 @router.get("/runs/{run_id}/export/csv")
 async def export_run_csv(run_id: str) -> JSONResponse:
-    run_data = _state["runs"].get(run_id)
+    run_data = _engine_service.get_run(run_id)
     if not run_data:
         return JSONResponse({"status": "error", "message": "Run not found"}, status_code=404)
     return JSONResponse({"status": "error", "message": "CSV export requires stored results"}, status_code=501)
@@ -419,7 +452,7 @@ async def export_run_csv(run_id: str) -> JSONResponse:
 
 @router.get("/runs/{run_id}/export/json")
 async def export_run_json(run_id: str) -> JSONResponse:
-    run_data = _state["runs"].get(run_id)
+    run_data = _engine_service.get_run(run_id)
     if not run_data:
         return JSONResponse({"status": "error", "message": "Run not found"}, status_code=404)
     return JSONResponse(run_data)

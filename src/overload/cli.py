@@ -43,6 +43,7 @@ def main() -> None:
     run_parser.add_argument("--concurrency", type=int, default=20, help="Max concurrent requests (default: 20)")
     run_parser.add_argument("--rps", type=int, default=50, help="Target requests per second")
     run_parser.add_argument("--duration", type=int, default=300, help="Test duration in seconds")
+    run_parser.add_argument("--data", metavar="PATH", help="CSV file for data-driven testing (column names fill {{placeholders}})")
     run_parser.add_argument("--var", action="append", dest="vars", metavar="KEY=VALUE", help="Variable override")
     run_parser.add_argument("--save-responses", action="store_true", help="Save response bodies")
     run_parser.add_argument("--output", default="reports", help="Output directory for reports (default: reports/)")
@@ -64,9 +65,16 @@ def main() -> None:
     seq_parser.add_argument("--environment", help="Path to Postman environment JSON")
     seq_parser.add_argument("--iterations", type=int, default=1, help="Number of iterations (default: 1)")
     seq_parser.add_argument("--delay", type=int, default=0, help="Delay between requests in ms (default: 0)")
+    seq_parser.add_argument("--data", metavar="PATH", help="CSV file for data-driven testing")
     seq_parser.add_argument("--var", action="append", dest="vars", metavar="KEY=VALUE", help="Variable override")
     seq_parser.add_argument("--output", default=".", help="Output directory")
     seq_parser.add_argument("--timeout", type=float, default=30.0, help="Request timeout in seconds")
+
+    # MCP command
+    subparsers.add_parser(
+        "mcp",
+        help="Start the MCP server (stdio) for Claude Code, Codex, and GitHub Copilot",
+    )
 
     args = parser.parse_args()
 
@@ -76,8 +84,15 @@ def main() -> None:
         asyncio.run(_run_test(args))
     elif args.command == "sequential":
         asyncio.run(_run_sequential(args))
+    elif args.command == "mcp":
+        _start_mcp()
     else:
         _start_ui(args)
+
+
+def _start_mcp() -> None:
+    from overload.mcp_server import main as mcp_main
+    mcp_main()
 
 
 def _setup_logging(debug: bool) -> None:
@@ -115,6 +130,7 @@ def _start_ui(args: argparse.Namespace) -> None:
 
     print(f"\n  OVERLOAD — Load Testing Tool v{__version__}")
     print(f"  Starting on http://{host}:{port}")
+    print("  Open the in-app 'Docs' tab for help, or visit https://dprakash2101.github.io/overload/")
     print("  Press Ctrl+C to stop\n")
 
     if not no_browser:
@@ -165,6 +181,21 @@ async def _run_test(args: argparse.Namespace) -> None:
         environment_vars=env_vars,
         runtime_vars=runtime_vars,
     )
+
+    data_source = None
+    if getattr(args, "data", None):
+        from overload.collection.data_source import DataSource
+        from overload.collection.variables import discover_placeholders
+        data_source = DataSource.from_csv(args.data)
+        col_set = set(data_source.columns)
+        placeholders = discover_placeholders(collection)
+        matched = sorted(placeholders & col_set)
+        unmatched = sorted(placeholders - col_set)
+        print(f"  Data: {args.data} ({len(data_source.rows)} rows, columns: {', '.join(data_source.columns)})")
+        if matched:
+            print(f"  Matched placeholders: {', '.join('{{' + p + '}}' for p in matched)}")
+        if unmatched:
+            print(f"  Unmatched placeholders (no CSV column): {', '.join('{{' + p + '}}' for p in unmatched)}")
 
     run_id = generate_run_id()
     cancel_event = asyncio.Event()
@@ -226,6 +257,7 @@ async def _run_test(args: argparse.Namespace) -> None:
         timeout=config.timeout_seconds,
         verify_ssl=config.verify_ssl,
         max_connections=config.concurrency * 2,
+        data_source=data_source,
     ) as client:
         await client.prepare_collection_auth(collection.auth, variables)
         if args.pattern == "ratelimit":
@@ -299,6 +331,9 @@ async def _run_test(args: argparse.Namespace) -> None:
         )
         if report_path:
             print(f"\n  Report: {os.path.abspath(report_path)}")
+            responses_path = os.path.join(os.path.dirname(report_path), "responses.json")
+            if os.path.isfile(responses_path):
+                print(f"  Responses: {os.path.abspath(responses_path)}")
 
     if args.format == "json":
         json_path = export_json(stats, args.pattern, run_id, args.output, ramp_rows)
@@ -347,6 +382,21 @@ async def _run_sequential(args: argparse.Namespace) -> None:
         runtime_vars=runtime_vars,
     )
 
+    data_source = None
+    if getattr(args, "data", None):
+        from overload.collection.data_source import DataSource
+        from overload.collection.variables import discover_placeholders
+        data_source = DataSource.from_csv(args.data)
+        col_set = set(data_source.columns)
+        placeholders = discover_placeholders(collection)
+        matched = sorted(placeholders & col_set)
+        unmatched = sorted(placeholders - col_set)
+        print(f"  Data: {args.data} ({len(data_source.rows)} rows, columns: {', '.join(data_source.columns)})")
+        if matched:
+            print(f"  Matched placeholders: {', '.join('{{' + p + '}}' for p in matched)}")
+        if unmatched:
+            print(f"  Unmatched placeholders (no CSV column): {', '.join('{{' + p + '}}' for p in unmatched)}")
+
     run_id = generate_run_id()
     cancel_event = asyncio.Event()
     print(f"  Run ID: {run_id}\n")
@@ -362,7 +412,7 @@ async def _run_sequential(args: argparse.Namespace) -> None:
         if progress.phase == "complete":
             print()
 
-    async with HttpClient(timeout=config.timeout_seconds) as client:
+    async with HttpClient(timeout=config.timeout_seconds, data_source=data_source) as client:
         results = await run_sequential(
             client, collection.requests, variables, config,
             run_id, cancel_event, on_progress,
@@ -385,6 +435,9 @@ async def _run_sequential(args: argparse.Namespace) -> None:
     )
     if report_path:
         print(f"\n  Report: {os.path.abspath(report_path)}")
+        responses_path = os.path.join(os.path.dirname(report_path), "responses.json")
+        if os.path.isfile(responses_path):
+            print(f"  Responses: {os.path.abspath(responses_path)}")
     print()
 
 

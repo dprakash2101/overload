@@ -5,6 +5,7 @@ import time
 
 import httpx
 
+from overload.collection.data_source import DataSource
 from overload.collection.models import AuthConfig, ParsedRequest, RequestBody
 from overload.collection.variables import VariableContext
 from overload.engine.models import RequestResult
@@ -20,13 +21,20 @@ class HttpClient:
         follow_redirects: bool = True,
         max_connections: int = 100,
         save_responses: bool = False,
+        data_source: DataSource | None = None,
+        result_sink: list[RequestResult] | None = None,
     ) -> None:
         self._timeout = timeout
         self._verify_ssl = verify_ssl
         self._follow_redirects = follow_redirects
         self._max_connections = max_connections
         self._save_responses = save_responses
+        self._data_source = data_source
+        self._row_index = 0
         self._client: httpx.AsyncClient | None = None
+        # Every result produced is appended here so callers retain partial
+        # results even when a run is hard-cancelled mid-flight.
+        self._result_sink = result_sink
 
     async def __aenter__(self) -> HttpClient:
         self._client = httpx.AsyncClient(
@@ -45,6 +53,11 @@ class HttpClient:
             await self._client.aclose()
             self._client = None
 
+    def _record(self, result: RequestResult) -> RequestResult:
+        if self._result_sink is not None:
+            self._result_sink.append(result)
+        return result
+
     async def execute(
         self,
         request: ParsedRequest,
@@ -54,6 +67,11 @@ class HttpClient:
             raise RuntimeError("HttpClient must be used as an async context manager")
 
         ctx = variables or VariableContext()
+
+        if self._data_source is not None:
+            row = self._data_source.row_for(self._row_index)
+            self._row_index += 1
+            ctx = ctx.derive(row)
 
         url = ctx.resolve_url(request.url_raw)
         method = request.method
@@ -100,7 +118,7 @@ class HttpClient:
                 except Exception:
                     resp_body = f"<binary {len(response.content)} bytes>"
 
-            return RequestResult(
+            return self._record(RequestResult(
                 request_name=request_name,
                 method=method,
                 url=url,
@@ -111,12 +129,12 @@ class HttpClient:
                 headers_received=dict(response.headers),
                 body_size_bytes=len(response.content),
                 response_body=resp_body,
-            )
+            ))
 
         except httpx.TimeoutException:
             latency_ms = (time.monotonic() - t0) * 1000
             logger.warning("Timeout: %s %s after %.1fms", method, url, latency_ms)
-            return RequestResult(
+            return self._record(RequestResult(
                 request_name=request_name,
                 method=method,
                 url=url,
@@ -124,12 +142,12 @@ class HttpClient:
                 latency_ms=latency_ms,
                 timestamp=timestamp,
                 error="timeout",
-            )
+            ))
 
         except httpx.ConnectError as exc:
             latency_ms = (time.monotonic() - t0) * 1000
             logger.error("Connection error: %s %s - %s", method, url, exc)
-            return RequestResult(
+            return self._record(RequestResult(
                 request_name=request_name,
                 method=method,
                 url=url,
@@ -137,12 +155,12 @@ class HttpClient:
                 latency_ms=latency_ms,
                 timestamp=timestamp,
                 error=f"connection_error: {exc}",
-            )
+            ))
 
         except httpx.HTTPError as exc:
             latency_ms = (time.monotonic() - t0) * 1000
             logger.error("HTTP error: %s %s - %s", method, url, exc)
-            return RequestResult(
+            return self._record(RequestResult(
                 request_name=request_name,
                 method=method,
                 url=url,
@@ -150,7 +168,7 @@ class HttpClient:
                 latency_ms=latency_ms,
                 timestamp=timestamp,
                 error=str(exc),
-            )
+            ))
 
     async def prepare_collection_auth(
         self,
