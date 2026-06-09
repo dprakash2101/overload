@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.1] — 2026-06-09
+
+### Security
+
+**GitHub Actions — Script injection in publish.yml**
+- All `${{ inputs.version }}` interpolations in `run:` shell blocks have been replaced with safe environment variable bindings (`INPUT_VERSION`). Previously, a crafted `workflow_dispatch` version input could inject arbitrary shell commands into the CI runner.
+- A new `validate-version` job gates all downstream jobs and rejects version inputs that don't match a semver pattern (`^[0-9]+\.[0-9]+\.[0-9]+...`).
+
+**API — Path traversal in load-local endpoints**
+- `/api/collection/load-local`, `/api/environment/load-local`, and `/api/data/load-local` now reject any path that resolves (via `os.path.realpath()`) outside the configured working directory. This covers symlink-based escapes.
+- Error responses from these endpoints no longer expose raw exception messages.
+
+### Tests
+
+- 5 new security tests in `tests/test_api.py` — path traversal blocked for collection, environment, and CSV endpoints; symlink escape rejected; parse errors do not leak filesystem paths.
+- 254 tests total, all passing.
+
+---
+
 ## [0.3.0] — 2026-06-09
 
 ### Added
@@ -200,6 +219,7 @@ First public release.
 - 124 unit tests across all layers (assertions, auth, collection parser, variables, HTTP client, models, report, API)
 - GitHub Actions CI matrix: Python 3.10 · 3.11 · 3.12 · 3.13
 
+[0.3.1]: https://github.com/dprakash2101/overload/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/dprakash2101/overload/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/dprakash2101/overload/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/dprakash2101/overload/compare/v0.1.1...v0.2.0
