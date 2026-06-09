@@ -20,7 +20,7 @@ def create_app(working_dir: str | None = None) -> FastAPI:
     app = FastAPI(
         title="Overload",
         description="Load testing tool for Postman collections",
-        version="0.1.1",
+        version="0.3.1",
     )
 
     _state["working_dir"] = working_dir or os.getcwd()

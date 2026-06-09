@@ -49,9 +49,26 @@ jobs:
       - name: Verify CLI entry point
         run: overload --version
 
+  validate-version:
+    name: Validate version format
+    runs-on: ubuntu-latest
+    outputs:
+      safe_version: ${{ steps.validate.outputs.safe_version }}
+    steps:
+      - name: Validate version format
+        id: validate
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if ! echo "$INPUT_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+([a-zA-Z0-9.+-]*)?$'; then
+            echo "ERROR: version '$INPUT_VERSION' does not match semver pattern"
+            exit 1
+          fi
+          echo "safe_version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build distribution
-    needs: test
+    needs: [test, validate-version]
     runs-on: ubuntu-latest
 
     steps:
@@ -66,6 +83,8 @@ jobs:
         run: pip install build twine
 
       - name: Verify version matches input
+        env:
+          INPUT_VERSION: ${{ needs.validate-version.outputs.safe_version }}
         run: |
           TOML_VERSION=$(python -c "
           import tomllib
@@ -74,8 +93,8 @@ jobs:
           print(d['project']['version'])
           ")
           echo "pyproject.toml version: $TOML_VERSION"
-          echo "Input version:          ${{ inputs.version }}"
-          if [ "$TOML_VERSION" != "${{ inputs.version }}" ]; then
+          echo "Input version:          $INPUT_VERSION"
+          if [ "$TOML_VERSION" != "$INPUT_VERSION" ]; then
             echo "ERROR: version mismatch — update pyproject.toml before publishing"
             exit 1
           fi
@@ -89,13 +108,13 @@ jobs:
       - name: Upload dist as artifact
         uses: actions/upload-artifact@v7
         with:
-          name: dist-${{ inputs.version }}
+          name: dist-${{ needs.validate-version.outputs.safe_version }}
           path: dist/
           retention-days: 7
 
   release:
     name: Create Git tag and GitHub release
-    needs: build
+    needs: [build, validate-version]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -109,8 +128,10 @@ jobs:
 
       - name: Check if tag already exists
         id: check_tag
+        env:
+          INPUT_VERSION: ${{ needs.validate-version.outputs.safe_version }}
         run: |
-          TAG="v${{ inputs.version }}"
+          TAG="v${INPUT_VERSION}"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
             echo "Tag $TAG already exists — skipping tag creation"
@@ -122,8 +143,10 @@ jobs:
       - name: Create and push tag
         id: tag
         if: steps.check_tag.outputs.exists == 'false'
+        env:
+          INPUT_VERSION: ${{ needs.validate-version.outputs.safe_version }}
         run: |
-          TAG="v${{ inputs.version }}"
+          TAG="v${INPUT_VERSION}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git tag -a "$TAG" -m "Release $TAG"
@@ -133,36 +156,39 @@ jobs:
       - name: Set tag output (existing tag)
         if: steps.check_tag.outputs.exists == 'true'
         id: tag_existing
-        run: echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+        env:
+          INPUT_VERSION: ${{ needs.validate-version.outputs.safe_version }}
+        run: echo "tag=v${INPUT_VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Download dist artifact
         uses: actions/download-artifact@v8
         with:
-          name: dist-${{ inputs.version }}
+          name: dist-${{ needs.validate-version.outputs.safe_version }}
           path: dist/
 
       - name: Extract changelog for this version
         id: changelog
+        env:
+          INPUT_VERSION: ${{ needs.validate-version.outputs.safe_version }}
         run: |
-          VERSION="${{ inputs.version }}"
           BODY=$(python -c "
-          import re, sys
+          import os, re, sys
+          version = os.environ['INPUT_VERSION']
           text = open('CHANGELOG.md').read()
-          pattern = rf'## \[{re.escape(\"$VERSION\")}\].*?\n(.*?)(?=\n## \[|\Z)'
+          pattern = rf'## \[{re.escape(version)}\].*?\n(.*?)(?=\n## \[|\Z)'
           m = re.search(pattern, text, re.DOTALL)
           if m:
               print(m.group(1).strip())
           else:
-              print('Release v$VERSION')
+              print(f'Release v{version}')
           ")
-          # Write to file to avoid quoting issues
           echo "$BODY" > release_notes.md
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: v${{ inputs.version }}
-          name: "Overload v${{ inputs.version }}"
+          tag_name: v${{ needs.validate-version.outputs.safe_version }}
+          name: "Overload v${{ needs.validate-version.outputs.safe_version }}"
           body_path: release_notes.md
           draft: false
           prerelease: false
@@ -173,7 +199,7 @@ jobs:
 
   publish:
     name: Publish to ${{ inputs.environment }}
-    needs: [build, release]
+    needs: [build, release, validate-version]
     runs-on: ubuntu-latest
     environment:
       name: ${{ inputs.environment }}
@@ -185,7 +211,7 @@ jobs:
       - name: Download dist artifact
         uses: actions/download-artifact@v8
         with:
-          name: dist-${{ inputs.version }}
+          name: dist-${{ needs.validate-version.outputs.safe_version }}
           path: dist/
 
       - name: Publish to PyPI (trusted publishing)

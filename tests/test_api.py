@@ -188,6 +188,74 @@ def multi_request_collection(tmp_path):
     return tc
 
 
+class TestPathTraversalBlocked:
+    def test_collection_load_local_rejects_outside_path(self, tmp_path) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        target = outside / "secret.json"
+        target.write_text('{"info":{"name":"x","schema":"postman"},"item":[]}')
+
+        app = create_app(working_dir=str(tmp_path / "workdir"))
+        (tmp_path / "workdir").mkdir()
+        tc = TestClient(app)
+        resp = tc.post("/api/collection/load-local", json={"path": str(target)})
+        assert resp.status_code == 403
+        assert "outside working directory" in resp.json()["message"]
+
+    def test_environment_load_local_rejects_outside_path(self, tmp_path) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        target = outside / "env.json"
+        target.write_text('{"name":"e","values":[]}')
+
+        workdir = tmp_path / "workdir"
+        workdir.mkdir()
+        app = create_app(working_dir=str(workdir))
+        tc = TestClient(app)
+        resp = tc.post("/api/environment/load-local", json={"path": str(target)})
+        assert resp.status_code == 403
+        assert "outside working directory" in resp.json()["message"]
+
+    def test_data_load_local_rejects_outside_path(self, tmp_path) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        target = outside / "data.csv"
+        target.write_text("col1,col2\na,b\n")
+
+        workdir = tmp_path / "workdir"
+        workdir.mkdir()
+        app = create_app(working_dir=str(workdir))
+        tc = TestClient(app)
+        resp = tc.post("/api/data/load-local", json={"path": str(target)})
+        assert resp.status_code == 403
+        assert "outside working directory" in resp.json()["message"]
+
+    def test_symlink_escape_rejected(self, tmp_path) -> None:
+        secret = tmp_path / "secret"
+        secret.mkdir()
+        target = secret / "data.csv"
+        target.write_text("col1\nval1\n")
+
+        workdir = tmp_path / "workdir"
+        workdir.mkdir()
+        link = workdir / "link.csv"
+        link.symlink_to(target)
+
+        app = create_app(working_dir=str(workdir))
+        tc = TestClient(app)
+        resp = tc.post("/api/data/load-local", json={"path": str(link)})
+        assert resp.status_code == 403
+
+    def test_collection_error_does_not_leak_path(self, tmp_path) -> None:
+        bad = tmp_path / "bad.json"
+        bad.write_text("not valid json {{{")
+        app = create_app(working_dir=str(tmp_path))
+        tc = TestClient(app)
+        resp = tc.post("/api/collection/load-local", json={"path": str(bad)})
+        assert resp.status_code == 400
+        assert str(bad) not in resp.json()["message"]
+
+
 class TestSelectedRequests:
     def test_empty_selection_returns_400(self, multi_request_collection) -> None:
         resp = multi_request_collection.post(
