@@ -25,6 +25,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+
+def _is_path_within_working_dir(filepath: str) -> bool:
+    """Reject paths that escape the working directory."""
+    allowed = os.path.realpath(_state.get("working_dir", os.getcwd()))
+    real = os.path.realpath(filepath)
+    return real == allowed or real.startswith(allowed + os.sep)
+
 _state: dict[str, Any] = {
     "collection": None,
     "environment": None,
@@ -112,6 +119,8 @@ async def load_local_collection(body: dict) -> JSONResponse:
     filepath = body.get("path", "")
     if not filepath or not os.path.isfile(filepath):
         return JSONResponse({"status": "error", "message": "File not found"}, status_code=400)
+    if not _is_path_within_working_dir(filepath):
+        return JSONResponse({"status": "error", "message": "Path outside working directory"}, status_code=403)
     try:
         collection = parse_collection(filepath)
         _state["collection"] = collection
@@ -126,7 +135,7 @@ async def load_local_collection(body: dict) -> JSONResponse:
         return JSONResponse({"status": "ok", "collection": collection.to_dict()})
     except Exception as exc:
         logger.exception("Error parsing collection")
-        return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
+        return JSONResponse({"status": "error", "message": "Failed to parse collection file"}, status_code=400)
 
 
 @router.post("/environment/load-local")
@@ -134,6 +143,8 @@ async def load_local_environment(body: dict) -> JSONResponse:
     filepath = body.get("path", "")
     if not filepath or not os.path.isfile(filepath):
         return JSONResponse({"status": "error", "message": "File not found"}, status_code=400)
+    if not _is_path_within_working_dir(filepath):
+        return JSONResponse({"status": "error", "message": "Path outside working directory"}, status_code=403)
     try:
         env_vars = parse_environment(filepath)
         _state["environment"] = env_vars
@@ -148,7 +159,7 @@ async def load_local_environment(body: dict) -> JSONResponse:
         return JSONResponse({"status": "ok", "variables": env_vars})
     except Exception as exc:
         logger.exception("Error parsing environment")
-        return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
+        return JSONResponse({"status": "error", "message": "Failed to parse environment file"}, status_code=400)
 
 
 @router.post("/collection/upload")
@@ -227,6 +238,8 @@ async def load_local_data(body: dict) -> JSONResponse:
     filepath = body.get("path", "")
     if not filepath or not os.path.isfile(filepath):
         return JSONResponse({"status": "error", "message": "File not found"}, status_code=400)
+    if not _is_path_within_working_dir(filepath):
+        return JSONResponse({"status": "error", "message": "Path outside working directory"}, status_code=403)
     try:
         ds = DataSource.from_csv(filepath)
         _state["data_source"] = ds
@@ -248,7 +261,7 @@ async def load_local_data(body: dict) -> JSONResponse:
         })
     except Exception as exc:
         logger.exception("Error loading CSV from disk")
-        return JSONResponse({"status": "error", "message": str(exc)}, status_code=400)
+        return JSONResponse({"status": "error", "message": "Failed to parse CSV file"}, status_code=400)
 
 
 @router.post("/data/clear")
