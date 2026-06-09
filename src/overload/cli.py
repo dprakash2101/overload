@@ -185,8 +185,17 @@ async def _run_test(args: argparse.Namespace) -> None:
     data_source = None
     if getattr(args, "data", None):
         from overload.collection.data_source import DataSource
+        from overload.collection.variables import discover_placeholders
         data_source = DataSource.from_csv(args.data)
+        col_set = set(data_source.columns)
+        placeholders = discover_placeholders(collection)
+        matched = sorted(placeholders & col_set)
+        unmatched = sorted(placeholders - col_set)
         print(f"  Data: {args.data} ({len(data_source.rows)} rows, columns: {', '.join(data_source.columns)})")
+        if matched:
+            print(f"  Matched placeholders: {', '.join('{{' + p + '}}' for p in matched)}")
+        if unmatched:
+            print(f"  Unmatched placeholders (no CSV column): {', '.join('{{' + p + '}}' for p in unmatched)}")
 
     run_id = generate_run_id()
     cancel_event = asyncio.Event()
@@ -373,8 +382,17 @@ async def _run_sequential(args: argparse.Namespace) -> None:
     data_source = None
     if getattr(args, "data", None):
         from overload.collection.data_source import DataSource
+        from overload.collection.variables import discover_placeholders
         data_source = DataSource.from_csv(args.data)
-        print(f"  Data: {args.data} ({len(data_source.rows)} rows)")
+        col_set = set(data_source.columns)
+        placeholders = discover_placeholders(collection)
+        matched = sorted(placeholders & col_set)
+        unmatched = sorted(placeholders - col_set)
+        print(f"  Data: {args.data} ({len(data_source.rows)} rows, columns: {', '.join(data_source.columns)})")
+        if matched:
+            print(f"  Matched placeholders: {', '.join('{{' + p + '}}' for p in matched)}")
+        if unmatched:
+            print(f"  Unmatched placeholders (no CSV column): {', '.join('{{' + p + '}}' for p in unmatched)}")
 
     run_id = generate_run_id()
     cancel_event = asyncio.Event()

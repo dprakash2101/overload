@@ -437,3 +437,60 @@ class TestRunHistory:
         data = _json.loads(sidecar.read_text())
         assert data["run_id"] == run_id
         assert data["status"] == "complete"
+
+
+class TestSpaShell:
+    def test_docs_nav_and_script_present(self, client) -> None:
+        """The SPA shell must include the Docs nav link and docs.js script tag."""
+        resp = client.get("/")
+        assert resp.status_code == 200
+        html = resp.text
+        assert 'data-page="docs"' in html
+        assert "docs.js" in html
+
+
+class TestSelectedRequestFiltering:
+    @pytest.mark.asyncio
+    async def test_selected_indices_filter_requests_passed_to_runner(self, tmp_path) -> None:
+        """selected_requests=[0, 2] must pass only requests 0 and 2 to the pattern executor."""
+        captured_requests: list = []
+
+        async def fake_execute(client, requests, variables, config, run_id, cancel_event, on_progress):
+            captured_requests.extend(requests)
+            return []
+
+        mock_pattern = AsyncMock()
+        mock_pattern.execute.side_effect = fake_execute
+
+        collection = {
+            "info": {
+                "name": "Filter Test",
+                "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+            },
+            "item": [
+                {"name": "R1", "request": {"method": "GET", "url": "https://a.com/1"}},
+                {"name": "R2", "request": {"method": "GET", "url": "https://a.com/2"}},
+                {"name": "R3", "request": {"method": "GET", "url": "https://a.com/3"}},
+            ],
+        }
+        coll_path = tmp_path / "filter.json"
+        coll_path.write_text(json.dumps(collection))
+
+        with patch("overload.engine.service.get_pattern", return_value=mock_pattern):
+            from httpx import ASGITransport, AsyncClient
+
+            app = create_app(working_dir=str(tmp_path))
+            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+                await ac.post("/api/collection/load-local", json={"path": str(coll_path)})
+                resp = await ac.post(
+                    "/api/test/start",
+                    json={"test_type": "burst", "config": {}, "selected_requests": [0, 2]},
+                )
+                assert resp.status_code == 200
+                await asyncio.sleep(0.3)
+
+        assert len(captured_requests) == 2
+        urls = {r.url_raw for r in captured_requests}
+        assert "https://a.com/1" in urls
+        assert "https://a.com/3" in urls
+        assert "https://a.com/2" not in urls
