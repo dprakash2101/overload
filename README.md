@@ -18,6 +18,9 @@ No metaphor. No brand committee. Just requests — a lot of them — all at once
 
 ```bash
 pip install overload-cli
+
+# With MCP server support (for Claude Code / Codex CLI / GitHub Copilot)
+pip install "overload-cli[mcp]"
 ```
 
 Or in dev mode from source:
@@ -49,7 +52,7 @@ overload
 4. Adjust the config fields that appear (concurrency, RPS, duration, etc.).
 5. Click **Start Test**. The dashboard shows live progress: phase, request count, RPS, and a real-time latency chart.
 6. When the test finishes, click **View Report** to open the full HTML report in a new tab — latency charts, timeline scatter, per-second breakdown, and the raw request log.
-7. Click **Stop** at any time to cancel immediately with partial results saved.
+7. Click **Stop** at any time. Overload waits up to 10 seconds for the pattern to finish cleanly, then generates a partial HTML report from whatever data was collected — nothing is lost.
 
 **Options:**
 
@@ -105,6 +108,7 @@ overload run --collection path/to/collection.json --pattern burst
 | `--no-verify-ssl` | off | Skip SSL certificate verification |
 | `--output` | `reports` | Directory to write the HTML report |
 | `--format` | `html` | Report format: `html`, `json`, `csv` |
+| `--data PATH` | — | CSV file for data-driven testing — each row fills `{{placeholders}}` in URLs, headers, body, and auth round-robin |
 | `--assert EXPR` | — | Assertion threshold (repeatable), e.g. `p95_latency_ms<500` |
 | `--junit PATH` | — | Write JUnit XML report for CI systems |
 | `--config PATH` | — | Load config from `overload.config.yaml` |
@@ -204,6 +208,54 @@ overload run --collection api.json --config overload.config.yaml --junit results
 **Available assertion metrics:** `p50_latency_ms`, `p95_latency_ms`, `p99_latency_ms`, `max_latency_ms`, `mean_latency_ms`, `error_rate_pct`, `success_rate_pct`, `avg_rps`, `total_requests`, `rate_limited_count`
 
 **Operators:** `<`, `<=`, `>`, `>=`, `==`
+
+---
+
+## CSV Data-Driven Testing
+
+Attach a CSV file and each request automatically fills its `{{placeholders}}` from a different row — round-robin across URLs, headers, body fields, query params, and auth.
+
+**CLI:**
+
+```bash
+overload run --collection api.json --data users.csv --pattern burst --requests 500
+```
+
+**Browser UI:** drag-and-drop or upload a CSV on the Collection page after loading a collection. The UI shows which `{{placeholders}}` matched columns (green) and which didn't (amber).
+
+**How it works:** a column named `email` in the CSV fills every `{{email}}` occurrence in the collection automatically. Row *N* is used by request *N mod row_count*, so load volume stays independent of CSV size.
+
+---
+
+## MCP Server (Claude Code / Codex CLI / GitHub Copilot)
+
+Run load tests conversationally from any MCP client.
+
+```bash
+pip install "overload-cli[mcp]"
+```
+
+**Register once:**
+
+```bash
+# Claude Code
+claude mcp add overload -- overload mcp
+
+# Codex CLI
+codex mcp add overload -- overload mcp
+```
+
+**GitHub Copilot (VS Code)** — add to `settings.json`:
+
+```json
+"mcpServers": {
+  "overload": { "command": "overload", "args": ["mcp"] }
+}
+```
+
+**Available tools:** `list_patterns`, `describe_collection`, `run_load_test`, `get_run_status`, `get_run_results`, `stop_run`.
+
+Example conversation with Claude Code: *"Run a burst test on tests/api.json with 200 requests and fail if p95 exceeds 500 ms."*
 
 ---
 

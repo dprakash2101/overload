@@ -47,11 +47,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `POST /api/test/stop` behaviour: cooperative cancellation with 10-second grace window (previously immediate `task.cancel()`).
 - `GET /api/detect` response: now includes `csv_files` array alongside existing `collections` and `environments`.
 
+**MCP server (Claude Code, Codex CLI, GitHub Copilot)**
+- New `overload mcp` subcommand — starts a stdio MCP server exposing Overload as tools for any MCP client.
+- Install: `pip install "overload-cli[mcp]"` (FastMCP is an optional extra; core install stays lean).
+- Six MCP tools: `list_patterns`, `describe_collection`, `run_load_test`, `get_run_status`, `get_run_results`, `stop_run`.
+- `run_load_test` returns a `run_id` immediately (non-blocking); poll `get_run_status` while running, then fetch results via `get_run_results`. Guardrails: concurrency capped at 200, total requests at 10,000.
+- Register with Claude Code: `claude mcp add overload -- overload mcp`
+- Register with Codex CLI: `codex mcp add overload -- overload mcp`
+- Register with GitHub Copilot (VS Code): add `"overload": {"command": "overload", "args": ["mcp"]}` under `"mcpServers"` in VS Code settings.
+- New `src/overload/engine/service.py` — shared run orchestration used by both the web API and the MCP server; no duplicated logic.
+- 18 new tests in `tests/test_mcp_server.py`.
+
 ### Tests
 
-- 195 tests total, all passing (up from 182).
+- 218 tests total, all passing (up from 182).
 - 13 new tests in `tests/test_data_source.py` covering `DataSource`, `VariableContext.derive`, and `HttpClient` CSV cycling.
 - 5 new tests in `tests/test_api.py` covering request selection validation and stop-generates-report paths.
+- 18 new tests in `tests/test_mcp_server.py` covering all 6 MCP tools and the shared `engine/service.py` orchestration.
 
 ---
 
