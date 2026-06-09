@@ -142,6 +142,7 @@ window.RunnerPage = (function() {
     var fields = CONFIG_FIELDS[selectedType] || [];
     var html = '<div class="card">';
     html += '<div class="card-title">Configuration</div>';
+    html += '<div id="csvDataIndicator" style="margin-bottom:10px;font-size:11px;color:var(--mut)"></div>';
 
     html += '<div class="shape-preview"><div class="chart-title">Load Shape Preview</div><canvas id="shapeChart"></canvas></div>';
 
@@ -201,6 +202,19 @@ window.RunnerPage = (function() {
     html += '</div>';
 
     document.getElementById('testConfig').innerHTML = html;
+
+    // Show attached CSV data source status
+    fetch('/api/data/status')
+      .then(function(r) { return r.json(); })
+      .then(function(ds) {
+        var el = document.getElementById('csvDataIndicator');
+        if (!el) return;
+        if (ds.attached) {
+          el.innerHTML = '&#128202; Using data file: <strong>' + ds.row_count + ' rows</strong>, columns: ' + ds.columns.map(function(c) { return '<code>{{' + esc(c) + '}}</code>'; }).join(', ');
+          el.style.color = 'var(--ok, #0e8a5f)';
+        }
+      })
+      .catch(function() {});
 
     // Bind sliders to number inputs
     document.querySelectorAll('.config-slider').forEach(function(slider) {
@@ -652,8 +666,8 @@ window.RunnerPage = (function() {
       if (logPanel) logPanel.scrollTop = logPanel.scrollHeight;
     }
 
-    // Test complete
-    if (data.phase === 'complete' || (data.phase && data.phase.indexOf('complete') === 0)) {
+    // Test complete or failed
+    if (data.phase === 'complete' || (data.phase && data.phase.indexOf('complete') === 0) || data.phase === 'error') {
       isRunning = false;
       stopElapsedTimer();
       var stopBtn = document.getElementById('stopBtn');
@@ -662,7 +676,11 @@ window.RunnerPage = (function() {
         stopBtn.className = 'btn btn-primary';
         stopBtn.onclick = function() { window.OverloadApp.navigate('results'); };
       }
-      App.toast('Test complete! ' + data.completed_requests + ' requests.', 'success');
+      if (data.phase === 'error') {
+        App.toast('Test failed with an error. Check Results for details.', 'error');
+      } else {
+        App.toast('Test complete! ' + data.completed_requests + ' requests.', 'success');
+      }
 
       if (thresholds.length && currentRunId) {
         fetch('/api/runs/' + currentRunId + '/data')

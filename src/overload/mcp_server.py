@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -54,10 +55,8 @@ def describe_collection(path: str) -> dict[str, Any]:
     Returns request names, methods, URLs, and all {{placeholder}} variables
     found across the collection — useful for planning CSV data files.
     """
-    import re
-
     from overload.collection.parser import parse_collection
-    from overload.collection.variables import VARIABLE_PATTERN
+    from overload.collection.variables import discover_placeholders
 
     if not os.path.isfile(path):
         return {"error": f"File not found: {path}"}
@@ -66,15 +65,7 @@ def describe_collection(path: str) -> dict[str, Any]:
     except Exception as exc:
         return {"error": str(exc)}
 
-    all_text = " ".join(
-        r.url_raw
-        + " "
-        + " ".join(r.headers.values())
-        + " "
-        + str(r.body.content or "")
-        for r in collection.requests
-    )
-    placeholders = sorted(set(VARIABLE_PATTERN.findall(all_text)))
+    placeholders = sorted(discover_placeholders(collection))
 
     return {
         "name": collection.name,
@@ -167,11 +158,11 @@ async def run_load_test(
     if selected_requests is not None:
         if len(selected_requests) == 0:
             return {"error": "selected_requests must not be empty"}
-        requests = [
-            collection.requests[i]
-            for i in selected_requests
-            if i < len(collection.requests)
-        ]
+        n = len(collection.requests)
+        invalid = [i for i in selected_requests if not isinstance(i, int) or i < 0 or i >= n]
+        if invalid:
+            return {"error": f"Invalid request indices (must be 0–{n - 1}): {invalid}"}
+        requests = [collection.requests[i] for i in selected_requests]
 
     thresholds: list[Threshold] = []
     if assertions:
@@ -373,5 +364,5 @@ def main() -> None:
     ):
         mcp.tool()(fn)
 
-    print(_registration_instructions())
+    sys.stderr.write(_registration_instructions())
     mcp.run()

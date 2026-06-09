@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from overload.collection.data_source import DataSource
@@ -181,7 +184,7 @@ async def run_test(
             verdict=None,
         )
 
-    _runs[run_id] = {
+    run_record = {
         "run_id": result.run_id,
         "test_type": result.test_type,
         "stats": result.stats,
@@ -190,12 +193,22 @@ async def run_test(
         "status": result.status,
         "verdict": result.verdict,
     }
+    _runs[run_id] = run_record
     _tasks.pop(run_id, None)
     logger.info("Test %s: %s (%d requests)", result.status, run_id, stats.total)
 
+    # Persist metadata sidecar so the run survives across restarts.
+    if result.report_path:
+        _write_run_sidecar(output_dir, run_record)
+
     # Emit final progress so callers (WebSocket, MCP) know the run is done.
     computed_final = result.stats
-    final_phase = "complete (stopped)" if result.status == "stopped" else "complete"
+    if result.status == "stopped":
+        final_phase = "complete (stopped)"
+    elif result.status == "error":
+        final_phase = "error"
+    else:
+        final_phase = "complete"
     await _tracked_progress(RunProgress(
         run_id=run_id,
         total_requests=computed_final["total"] if computed_final else stats.total,
@@ -273,3 +286,31 @@ async def stop_run(run_id: str) -> bool:
 def is_running(run_id: str) -> bool:
     task = _tasks.get(run_id)
     return task is not None and not task.done()
+
+
+def _write_run_sidecar(output_dir: str, run_record: dict[str, Any]) -> None:
+    """Write a JSON metadata file alongside the HTML report for history persistence."""
+    try:
+        run_id = run_record["run_id"]
+        sidecar_path = os.path.join(output_dir, f"{run_id}_meta.json")
+        with open(sidecar_path, "w", encoding="utf-8") as fh:
+            json.dump(run_record, fh, separators=(",", ":"))
+    except OSError:
+        logger.exception("Failed to write run sidecar: %s", run_record.get("run_id"))
+
+
+def load_run_history(reports_dir: str) -> None:
+    """Scan reports_dir for *_meta.json files and populate _runs with historical entries."""
+    p = Path(reports_dir)
+    if not p.is_dir():
+        return
+    for meta_file in sorted(p.glob("*_meta.json")):
+        try:
+            with open(meta_file, encoding="utf-8") as fh:
+                data = json.load(fh)
+            run_id = data.get("run_id")
+            if run_id and run_id not in _runs:
+                _runs[run_id] = data
+                logger.debug("Loaded historical run: %s", run_id)
+        except (json.JSONDecodeError, OSError, KeyError):
+            logger.debug("Skipped unreadable sidecar: %s", meta_file)

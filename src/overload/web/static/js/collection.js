@@ -54,7 +54,8 @@ window.CollectionPage = (function() {
         var collections = data.collections || [];
         var environments = data.environments || [];
 
-        if (collections.length) {
+        var csvFiles = data.csv_files || [];
+        if (collections.length || environments.length || csvFiles.length) {
           html += '<div class="detected-section"><div class="card">';
           html += '<div class="card-title">Found in ' + esc(data.working_dir) + '</div>';
           collections.forEach(function(c) {
@@ -77,6 +78,16 @@ window.CollectionPage = (function() {
             html += '<div class="detected-item-btn">Load</div>';
             html += '</div>';
           });
+          csvFiles.forEach(function(f) {
+            html += '<div class="detected-item" data-path="' + esc(f.path) + '" data-type="csv">';
+            html += '<div class="detected-item-info">';
+            html += '<div class="detected-item-icon">&#128202;</div>';
+            html += '<div><div class="detected-item-name">' + esc(f.filename) + '</div>';
+            html += '<div class="detected-item-meta">' + f.row_count + ' rows &mdash; columns: ' + f.columns.map(function(c) { return esc(c); }).join(', ') + '</div></div>';
+            html += '</div>';
+            html += '<div class="detected-item-btn">Use</div>';
+            html += '</div>';
+          });
           html += '</div></div>';
         }
 
@@ -88,7 +99,8 @@ window.CollectionPage = (function() {
               var path = el.dataset.path;
               var type = el.dataset.type;
               if (type === 'collection') loadLocalCollection(path);
-              else loadLocalEnvironment(path);
+              else if (type === 'environment') loadLocalEnvironment(path);
+              else if (type === 'csv') loadLocalCsv(path);
             });
           });
         }
@@ -132,6 +144,27 @@ window.CollectionPage = (function() {
       }
     })
     .catch(function(err) { App.toast('Failed to load: ' + err.message, 'error'); });
+  }
+
+  function loadLocalCsv(path) {
+    fetch('/api/data/load-local', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: path })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.status === 'ok') {
+        dataAttached = true;
+        var csvCard = document.getElementById('csvCard');
+        if (csvCard) csvCard.style.display = 'block';
+        renderCsvStatus(data);
+        App.toast('Data loaded: ' + data.row_count + ' rows, ' + data.columns.length + ' columns', 'success');
+      } else {
+        App.toast('Error: ' + data.message, 'error');
+      }
+    })
+    .catch(function(err) { App.toast('Failed to load CSV: ' + err.message, 'error'); });
   }
 
   function setupDropZone() {
@@ -508,5 +541,7 @@ window.CollectionPage = (function() {
     return Array.from(selectedIndices).sort(function(a, b) { return a - b; });
   }
 
-  return { render: render, getCollection: getCollection, getSelectedIndices: getSelectedIndices };
+  function getDataAttached() { return dataAttached; }
+
+  return { render: render, getCollection: getCollection, getSelectedIndices: getSelectedIndices, getDataAttached: getDataAttached };
 })();

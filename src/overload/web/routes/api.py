@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import os
@@ -14,7 +15,7 @@ from overload.collection.data_source import DataSource
 from overload.collection.environment import parse_environment
 from overload.collection.models import ParsedCollection
 from overload.collection.parser import parse_collection
-from overload.collection.variables import VariableContext
+from overload.collection.variables import VariableContext, discover_placeholders
 from overload.config_file import extract_config, extract_test_type, extract_thresholds, load_config, save_config
 from overload.engine import service as _engine_service
 from overload.engine.models import PatternConfig, RunProgress, Threshold
@@ -198,19 +199,13 @@ async def upload_environment(file: UploadFile = File(...)) -> JSONResponse:
 async def upload_data(file: UploadFile = File(...)) -> JSONResponse:
     try:
         content = await file.read()
-        ds = DataSource.from_csv(content.decode("utf-8-sig"))
+        ds = DataSource.from_csv(io.BytesIO(content))
         _state["data_source"] = ds
-        collection = _state.get("collection")
+        collection: ParsedCollection | None = _state.get("collection")
         matched: list[str] = []
         unmatched: list[str] = []
         if collection:
-            from overload.collection.variables import VARIABLE_PATTERN
-            import re
-            all_text = " ".join([
-                r.url_raw + " " + " ".join(r.headers.values()) + " " + str(r.body.content)
-                for r in collection.requests
-            ])
-            placeholders = set(VARIABLE_PATTERN.findall(all_text))
+            placeholders = discover_placeholders(collection)
             col_set = set(ds.columns)
             matched = sorted(placeholders & col_set)
             unmatched = sorted(placeholders - col_set)
@@ -235,16 +230,11 @@ async def load_local_data(body: dict) -> JSONResponse:
     try:
         ds = DataSource.from_csv(filepath)
         _state["data_source"] = ds
-        collection = _state.get("collection")
+        collection: ParsedCollection | None = _state.get("collection")
         matched: list[str] = []
         unmatched: list[str] = []
         if collection:
-            from overload.collection.variables import VARIABLE_PATTERN
-            all_text = " ".join([
-                r.url_raw + " " + " ".join(r.headers.values()) + " " + str(r.body.content)
-                for r in collection.requests
-            ])
-            placeholders = set(VARIABLE_PATTERN.findall(all_text))
+            placeholders = discover_placeholders(collection)
             col_set = set(ds.columns)
             matched = sorted(placeholders & col_set)
             unmatched = sorted(placeholders - col_set)
@@ -314,11 +304,19 @@ async def start_test(body: dict) -> JSONResponse:
     config_dict = body.get("config", {})
     selected_indices = body.get("selected_requests")
 
-    if selected_indices is not None and len(selected_indices) == 0:
-        return JSONResponse(
-            {"status": "error", "message": "No requests selected"},
-            status_code=400,
-        )
+    if selected_indices is not None:
+        if len(selected_indices) == 0:
+            return JSONResponse(
+                {"status": "error", "message": "No requests selected"},
+                status_code=400,
+            )
+        n = len(collection.requests)
+        invalid = [i for i in selected_indices if not isinstance(i, int) or i < 0 or i >= n]
+        if invalid:
+            return JSONResponse(
+                {"status": "error", "message": f"Invalid request indices (must be 0–{n - 1}): {invalid}"},
+                status_code=400,
+            )
 
     thresholds: list[Threshold] = []
     for entry in body.get("thresholds", []):
@@ -337,7 +335,7 @@ async def start_test(body: dict) -> JSONResponse:
 
     requests = collection.requests
     if selected_indices is not None:
-        requests = [collection.requests[i] for i in selected_indices if i < len(collection.requests)]
+        requests = [collection.requests[i] for i in selected_indices]
 
     variables = _state.get("variables") or VariableContext(collection_vars=collection.variables)
     data_source = _state.get("data_source")
@@ -388,6 +386,8 @@ async def stop_test() -> JSONResponse:
 
 @router.get("/runs")
 async def list_runs() -> JSONResponse:
+    reports_dir = os.path.join(_state.get("working_dir", os.getcwd()), "reports")
+    _engine_service.load_run_history(reports_dir)
     runs = []
     for run_id, run_data in _engine_service._runs.items():
         summary = {

@@ -354,3 +354,148 @@ class TestServiceRunTest:
 
         assert result.status == "stopped"
         assert service._runs[result.run_id]["status"] == "stopped"
+
+
+# ---------------------------------------------------------------------------
+# describe_collection — completeness (query params, auth)
+# ---------------------------------------------------------------------------
+
+class TestDescribeCollectionCompleteness:
+    def test_detects_query_param_placeholder(self, tmp_path: Path) -> None:
+        data = {
+            "info": {
+                "name": "QP Test",
+                "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+            },
+            "item": [
+                {
+                    "name": "Search",
+                    "request": {
+                        "method": "GET",
+                        "url": {
+                            "raw": "https://api.example.com/search?q={{query}}",
+                            "query": [{"key": "q", "value": "{{query}}"}],
+                        },
+                    },
+                }
+            ],
+        }
+        p = tmp_path / "qp.json"
+        p.write_text(__import__("json").dumps(data))
+        result = describe_collection(str(p))
+        assert "query" in result["placeholders"]
+
+    def test_detects_auth_placeholder(self, tmp_path: Path) -> None:
+        data = {
+            "info": {
+                "name": "Auth Test",
+                "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+            },
+            "item": [
+                {
+                    "name": "Secured",
+                    "request": {
+                        "method": "GET",
+                        "url": "https://api.example.com/secure",
+                        "auth": {
+                            "type": "bearer",
+                            "bearer": [{"key": "token", "value": "{{bearer_token}}", "type": "string"}],
+                        },
+                    },
+                }
+            ],
+        }
+        p = tmp_path / "auth.json"
+        p.write_text(__import__("json").dumps(data))
+        result = describe_collection(str(p))
+        assert "bearer_token" in result["placeholders"]
+
+
+# ---------------------------------------------------------------------------
+# run_load_test — invalid selected_requests
+# ---------------------------------------------------------------------------
+
+class TestRunLoadTestValidation:
+    async def test_negative_index_returns_error(self, simple_collection: Path) -> None:
+        result = await run_load_test(str(simple_collection), selected_requests=[-1])
+        assert "error" in result
+        assert "Invalid request indices" in result["error"]
+
+    async def test_out_of_range_index_returns_error(self, simple_collection: Path) -> None:
+        result = await run_load_test(str(simple_collection), selected_requests=[999])
+        assert "error" in result
+        assert "Invalid request indices" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# MCP registration text goes to stderr, not stdout
+# ---------------------------------------------------------------------------
+
+class TestMcpRegistrationOutput:
+    def test_registration_instructions_not_empty(self) -> None:
+        from overload.mcp_server import _registration_instructions
+        text = _registration_instructions()
+        assert "claude mcp add" in text
+        assert "overload mcp" in text
+
+    def test_main_writes_to_stderr_not_stdout(self, capsys) -> None:
+        """Registration instructions must not pollute the MCP stdio stdout stream."""
+        import sys
+        from io import StringIO
+        from unittest.mock import MagicMock, patch
+
+        fake_mcp = MagicMock()
+        fake_mcp.tool.return_value = lambda f: f
+        fake_mcp.run.return_value = None
+
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        captured_stdout = StringIO()
+        captured_stderr = StringIO()
+        sys.stdout = captured_stdout
+        sys.stderr = captured_stderr
+        try:
+            with patch("overload.mcp_server.FastMCP", return_value=fake_mcp, create=True):
+                try:
+                    from overload.mcp_server import main
+                    main()
+                except Exception:
+                    pass
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+
+        assert captured_stdout.getvalue() == "", "Registration text must not go to stdout"
+        assert "claude mcp add" in captured_stderr.getvalue() or captured_stderr.getvalue() == ""
+
+
+# ---------------------------------------------------------------------------
+# Service — error status emits "error" phase, not "complete"
+# ---------------------------------------------------------------------------
+
+class TestServiceErrorProgress:
+    async def test_error_run_emits_error_phase(self, simple_collection: Path, tmp_path: Path) -> None:
+        from overload.collection.parser import parse_collection
+        from overload.collection.variables import VariableContext
+        from overload.engine import service
+        from overload.engine.models import PatternConfig
+
+        collection = parse_collection(str(simple_collection))
+        variables = VariableContext(collection_vars=collection.variables)
+        config = PatternConfig()
+
+        phases_received: list[str] = []
+
+        async def on_progress(p) -> None:
+            phases_received.append(p.phase)
+
+        with patch("overload.engine.service.get_pattern", side_effect=RuntimeError("boom")):
+            result = await service.run_test(
+                collection, "burst", config,
+                variables=variables,
+                output_dir=str(tmp_path / "reports"),
+                on_progress=on_progress,
+            )
+
+        assert result.status == "error"
+        assert phases_received[-1] == "error", f"Expected last phase 'error', got {phases_received}"

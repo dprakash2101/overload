@@ -6,7 +6,8 @@ import textwrap
 import pytest
 
 from overload.collection.data_source import DataSource
-from overload.collection.variables import VariableContext
+from overload.collection.models import AuthConfig, ParsedCollection, ParsedRequest, QueryParam, RequestBody
+from overload.collection.variables import VariableContext, discover_placeholders
 
 
 class TestDataSourceFromCsv:
@@ -89,6 +90,66 @@ class TestVariableContextDerive:
         ctx3 = ctx2.derive({"a": "second"})
         assert ctx3.resolve("{{a}}") == "second"
         assert ctx2.resolve("{{a}}") == "first"
+
+
+class TestDiscoverPlaceholders:
+    def _make_collection(self, requests: list[ParsedRequest], auth: AuthConfig | None = None) -> ParsedCollection:
+        return ParsedCollection(name="Test", description="", requests=requests, auth=auth)
+
+    def test_url_placeholder(self) -> None:
+        req = ParsedRequest(name="r", method="GET", url_raw="https://api.com/{{base_path}}/users")
+        coll = self._make_collection([req])
+        assert "base_path" in discover_placeholders(coll)
+
+    def test_header_placeholder(self) -> None:
+        req = ParsedRequest(name="r", method="GET", url_raw="https://api.com", headers={"Authorization": "Bearer {{token}}"})
+        coll = self._make_collection([req])
+        assert "token" in discover_placeholders(coll)
+
+    def test_query_param_placeholder(self) -> None:
+        req = ParsedRequest(
+            name="r", method="GET", url_raw="https://api.com",
+            query_params=[QueryParam(key="api_key", value="{{api_key}}")]
+        )
+        coll = self._make_collection([req])
+        assert "api_key" in discover_placeholders(coll)
+
+    def test_auth_param_placeholder(self) -> None:
+        req = ParsedRequest(
+            name="r", method="GET", url_raw="https://api.com",
+            auth=AuthConfig(type="bearer", params={"token": "{{bearer_token}}"})
+        )
+        coll = self._make_collection([req])
+        assert "bearer_token" in discover_placeholders(coll)
+
+    def test_collection_auth_placeholder(self) -> None:
+        req = ParsedRequest(name="r", method="GET", url_raw="https://api.com")
+        coll = self._make_collection([req], auth=AuthConfig(type="apikey", params={"value": "{{api_key}}"}))
+        assert "api_key" in discover_placeholders(coll)
+
+    def test_body_placeholder(self) -> None:
+        req = ParsedRequest(
+            name="r", method="POST", url_raw="https://api.com",
+            body=RequestBody(mode="raw", content='{"email": "{{email}}"}')
+        )
+        coll = self._make_collection([req])
+        assert "email" in discover_placeholders(coll)
+
+    def test_deduplication(self) -> None:
+        req = ParsedRequest(
+            name="r", method="GET",
+            url_raw="https://api.com/{{env}}/v1",
+            headers={"X-Env": "{{env}}"},
+        )
+        coll = self._make_collection([req])
+        placeholders = discover_placeholders(coll)
+        assert placeholders.count("env") if isinstance(placeholders, list) else "env" in placeholders
+        assert len([p for p in placeholders if p == "env"]) == 1
+
+    def test_no_placeholders_returns_empty(self) -> None:
+        req = ParsedRequest(name="r", method="GET", url_raw="https://api.com/health")
+        coll = self._make_collection([req])
+        assert discover_placeholders(coll) == set()
 
 
 class TestHttpClientDataSource:
