@@ -24,3 +24,15 @@ def make_output_dir(base_dir: str, run_id: str) -> str:
     path = os.path.join(base_dir, "overload_runs", run_id)
     os.makedirs(path, exist_ok=True)
     return path
+
+
+def run_dir_name(run_id: str) -> str:
+    """Folder name for a single run. The run_id already embeds the datetime."""
+    return f"run_{run_id}"
+
+
+def make_run_dir(base_dir: str, run_id: str) -> str:
+    """Create and return the per-run output folder: ``{base_dir}/run_{run_id}``."""
+    path = os.path.join(base_dir, run_dir_name(run_id))
+    os.makedirs(path, exist_ok=True)
+    return path

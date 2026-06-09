@@ -87,8 +87,12 @@ overload run --collection path/to/collection.json --pattern burst
     Latency — min: 45ms  p95: 312ms  max: 891ms
     Duration: 4.2s  Avg RPS: 47.6
 
-  Report: /path/to/overload_report_20260529_abc123.html
+  Report: /path/to/reports/run_20260529_153021_abc123/report.html
 ```
+
+Each run gets its own folder under `reports/` named `run_<run_id>/`, containing
+`report.html`, a `meta.json` sidecar (so runs survive restarts), and — when
+`--save-responses` is used — a `responses.json` with the captured response bodies.
 
 **All CLI flags for `overload run`:**
 

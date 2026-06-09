@@ -8,7 +8,8 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 
 from overload.engine.models import Stats
-from overload.utils.naming import generate_run_id, stamped_filename
+from overload.report.responses import write_responses_json
+from overload.utils.naming import generate_run_id, make_run_dir
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,11 @@ def generate_report(
         logger.warning("No results to generate report from")
         return ""
 
+    # Response bodies live in a separate responses.json so the HTML report
+    # stays lean; strip them from the embedded payload.
+    for entry in computed.get("request_log", []):
+        entry.pop("response_body", None)
+
     payload: dict = {
         "meta": {
             "run_id": run_id,
@@ -60,12 +66,13 @@ def generate_report(
         data_json=data_json,
     )
 
-    filename = stamped_filename("overload_report", run_id, ".html")
-    filepath = os.path.join(output_dir, filename)
-    os.makedirs(output_dir, exist_ok=True)
+    run_dir = make_run_dir(output_dir, run_id)
+    filepath = os.path.join(run_dir, "report.html")
 
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(html)
+
+    write_responses_json(run_dir, stats, run_id)
 
     logger.info("Report generated: %s", os.path.abspath(filepath))
     return filepath

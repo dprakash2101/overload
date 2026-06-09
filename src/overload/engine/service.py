@@ -16,6 +16,7 @@ from overload.engine.http_client import HttpClient
 from overload.engine.load_patterns import get_pattern
 from overload.engine.models import (
     PatternConfig,
+    RequestResult,
     RunProgress,
     Stats,
     TestType,
@@ -24,7 +25,8 @@ from overload.engine.models import (
 from overload.engine.rate_limiter import run_rate_limit_test
 from overload.engine.runner import run_sequential
 from overload.report.generator import generate_report
-from overload.utils.naming import generate_run_id
+from overload.report.responses import RESPONSES_FILENAME
+from overload.utils.naming import generate_run_id, run_dir_name
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,10 @@ async def run_test(
     ramp_rows: list[dict[str, Any]] = []
     result: RunResult
 
+    # Every result flows through this sink as it completes, so partial results
+    # survive even a hard (asyncio-level) cancellation of the run task.
+    collected: list[RequestResult] = []
+
     async def _tracked_progress(p: RunProgress) -> None:
         _progress[run_id] = p
         if on_progress:
@@ -85,6 +91,7 @@ async def run_test(
             max_connections=config.concurrency * 2,
             save_responses=config.save_responses,
             data_source=data_source,
+            result_sink=collected,
         ) as client:
             await client.prepare_collection_auth(collection.auth, variables)
             if test_type in (TestType.SEQUENTIAL, "sequential"):
@@ -151,6 +158,8 @@ async def run_test(
 
     except asyncio.CancelledError:
         logger.info("Test hard-cancelled: %s", run_id)
+        if stats.total == 0:
+            stats.add_all(collected)
         computed = stats.compute() if stats.total > 0 else None
         report_path = None
         if computed:
@@ -184,12 +193,19 @@ async def run_test(
             verdict=None,
         )
 
+    responses_path = None
+    if result.report_path:
+        candidate = os.path.join(os.path.dirname(result.report_path), RESPONSES_FILENAME)
+        if os.path.isfile(candidate):
+            responses_path = candidate
+
     run_record = {
         "run_id": result.run_id,
         "test_type": result.test_type,
         "stats": result.stats,
         "ramp_rows": result.ramp_rows,
         "report_path": result.report_path,
+        "responses_path": responses_path,
         "status": result.status,
         "verdict": result.verdict,
     }
@@ -289,10 +305,12 @@ def is_running(run_id: str) -> bool:
 
 
 def _write_run_sidecar(output_dir: str, run_record: dict[str, Any]) -> None:
-    """Write a JSON metadata file alongside the HTML report for history persistence."""
+    """Write meta.json inside the run folder for history persistence across restarts."""
     try:
         run_id = run_record["run_id"]
-        sidecar_path = os.path.join(output_dir, f"{run_id}_meta.json")
+        run_dir = os.path.join(output_dir, run_dir_name(run_id))
+        os.makedirs(run_dir, exist_ok=True)
+        sidecar_path = os.path.join(run_dir, "meta.json")
         with open(sidecar_path, "w", encoding="utf-8") as fh:
             json.dump(run_record, fh, separators=(",", ":"))
     except OSError:
@@ -300,11 +318,13 @@ def _write_run_sidecar(output_dir: str, run_record: dict[str, Any]) -> None:
 
 
 def load_run_history(reports_dir: str) -> None:
-    """Scan reports_dir for *_meta.json files and populate _runs with historical entries."""
+    """Scan reports_dir for run folders (run_*/meta.json) and legacy *_meta.json
+    sidecars, populating _runs with historical entries."""
     p = Path(reports_dir)
     if not p.is_dir():
         return
-    for meta_file in sorted(p.glob("*_meta.json")):
+    meta_files = sorted(p.glob("run_*/meta.json")) + sorted(p.glob("*_meta.json"))
+    for meta_file in meta_files:
         try:
             with open(meta_file, encoding="utf-8") as fh:
                 data = json.load(fh)

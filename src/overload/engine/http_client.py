@@ -22,6 +22,7 @@ class HttpClient:
         max_connections: int = 100,
         save_responses: bool = False,
         data_source: DataSource | None = None,
+        result_sink: list[RequestResult] | None = None,
     ) -> None:
         self._timeout = timeout
         self._verify_ssl = verify_ssl
@@ -31,6 +32,9 @@ class HttpClient:
         self._data_source = data_source
         self._row_index = 0
         self._client: httpx.AsyncClient | None = None
+        # Every result produced is appended here so callers retain partial
+        # results even when a run is hard-cancelled mid-flight.
+        self._result_sink = result_sink
 
     async def __aenter__(self) -> HttpClient:
         self._client = httpx.AsyncClient(
@@ -48,6 +52,11 @@ class HttpClient:
         if self._client:
             await self._client.aclose()
             self._client = None
+
+    def _record(self, result: RequestResult) -> RequestResult:
+        if self._result_sink is not None:
+            self._result_sink.append(result)
+        return result
 
     async def execute(
         self,
@@ -109,7 +118,7 @@ class HttpClient:
                 except Exception:
                     resp_body = f"<binary {len(response.content)} bytes>"
 
-            return RequestResult(
+            return self._record(RequestResult(
                 request_name=request_name,
                 method=method,
                 url=url,
@@ -120,12 +129,12 @@ class HttpClient:
                 headers_received=dict(response.headers),
                 body_size_bytes=len(response.content),
                 response_body=resp_body,
-            )
+            ))
 
         except httpx.TimeoutException:
             latency_ms = (time.monotonic() - t0) * 1000
             logger.warning("Timeout: %s %s after %.1fms", method, url, latency_ms)
-            return RequestResult(
+            return self._record(RequestResult(
                 request_name=request_name,
                 method=method,
                 url=url,
@@ -133,12 +142,12 @@ class HttpClient:
                 latency_ms=latency_ms,
                 timestamp=timestamp,
                 error="timeout",
-            )
+            ))
 
         except httpx.ConnectError as exc:
             latency_ms = (time.monotonic() - t0) * 1000
             logger.error("Connection error: %s %s - %s", method, url, exc)
-            return RequestResult(
+            return self._record(RequestResult(
                 request_name=request_name,
                 method=method,
                 url=url,
@@ -146,12 +155,12 @@ class HttpClient:
                 latency_ms=latency_ms,
                 timestamp=timestamp,
                 error=f"connection_error: {exc}",
-            )
+            ))
 
         except httpx.HTTPError as exc:
             latency_ms = (time.monotonic() - t0) * 1000
             logger.error("HTTP error: %s %s - %s", method, url, exc)
-            return RequestResult(
+            return self._record(RequestResult(
                 request_name=request_name,
                 method=method,
                 url=url,
@@ -159,7 +168,7 @@ class HttpClient:
                 latency_ms=latency_ms,
                 timestamp=timestamp,
                 error=str(exc),
-            )
+            ))
 
     async def prepare_collection_auth(
         self,

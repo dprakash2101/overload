@@ -394,6 +394,7 @@ async def list_runs() -> JSONResponse:
             "run_id": run_id,
             "test_type": run_data.get("test_type", ""),
             "status": run_data.get("status", ""),
+            "has_responses": bool(run_data.get("responses_path")),
         }
         stats = run_data.get("stats")
         if stats:
@@ -423,6 +424,22 @@ async def get_run_report(run_id: str) -> FileResponse:
     if not run_data or not run_data.get("report_path"):
         return JSONResponse({"status": "error", "message": "Report not found"}, status_code=404)
     return FileResponse(run_data["report_path"], media_type="text/html")
+
+
+@router.get("/runs/{run_id}/responses")
+async def get_run_responses(run_id: str) -> FileResponse:
+    run_data = _engine_service.get_run(run_id)
+    responses_path = run_data.get("responses_path") if run_data else None
+    if not responses_path or not os.path.isfile(responses_path):
+        return JSONResponse(
+            {"status": "error", "message": "No saved responses for this run"},
+            status_code=404,
+        )
+    return FileResponse(
+        responses_path,
+        media_type="application/json",
+        filename=f"responses_{run_id}.json",
+    )
 
 
 @router.get("/runs/{run_id}/export/csv")

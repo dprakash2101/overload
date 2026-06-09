@@ -331,6 +331,9 @@ async def _run_test(args: argparse.Namespace) -> None:
         )
         if report_path:
             print(f"\n  Report: {os.path.abspath(report_path)}")
+            responses_path = os.path.join(os.path.dirname(report_path), "responses.json")
+            if os.path.isfile(responses_path):
+                print(f"  Responses: {os.path.abspath(responses_path)}")
 
     if args.format == "json":
         json_path = export_json(stats, args.pattern, run_id, args.output, ramp_rows)
@@ -432,6 +435,9 @@ async def _run_sequential(args: argparse.Namespace) -> None:
     )
     if report_path:
         print(f"\n  Report: {os.path.abspath(report_path)}")
+        responses_path = os.path.join(os.path.dirname(report_path), "responses.json")
+        if os.path.isfile(responses_path):
+            print(f"  Responses: {os.path.abspath(responses_path)}")
     print()
 
 

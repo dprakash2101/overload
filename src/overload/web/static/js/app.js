@@ -108,6 +108,9 @@ window.OverloadApp = (function() {
             '<td>';
           if (run.status === 'complete' || run.status === 'stopped') {
             html += '<a href="/api/runs/' + run.run_id + '/report" target="_blank" class="btn btn-secondary" style="padding:4px 10px;font-size:11px">HTML Report</a> ';
+            if (run.has_responses) {
+              html += '<a href="/api/runs/' + run.run_id + '/responses" target="_blank" class="btn btn-secondary" style="padding:4px 10px;font-size:11px">Responses</a> ';
+            }
             html += '<button class="btn btn-secondary view-details" data-run="' + run.run_id + '" style="padding:4px 10px;font-size:11px">Details</button>';
           }
           html += '</td></tr>';
