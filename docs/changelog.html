@@ -77,10 +77,10 @@
       <p class="subtitle">All notable changes to this project will be documented in this file.</p>
 
       <div class="card">
-        <h2 class="card__title">v0.3.2 — Docs Links &amp; Rate Limit Multiplier</h2>
+        <h2 class="card__title">v0.3.2 — Embedded Docs &amp; Rate Limit Multiplier</h2>
         <p class="card__desc"><strong>Date:</strong> 2026-06-14</p>
         <ul>
-          <li><strong>In-App Docs Linked to GitHub Pages:</strong> The browser UI Docs tab now links to the published GitHub Pages documentation. Each topic has a "Read full documentation" link to the corresponding page.</li>
+          <li><strong>In-App Docs Embeds GitHub Pages:</strong> The browser UI Docs tab now loads the full published documentation site (<code>https://dprakash2101.github.io/overload/</code>) directly in a full-height iframe — complete with the site's own sidebar and navigation. No duplicate navigation in the app.</li>
           <li><strong>Configurable Phase 2 Multiplier:</strong> Rate limit tests now support a configurable <code>rate_limit_exceed_multiplier</code> (2×–10×) for Phase 2 instead of the hardcoded 2×. Exposed via browser UI slider, CLI <code>--exceed-multiplier</code> flag, MCP server parameter, and config file.</li>
           <li><strong>Tests:</strong> 4 new tests for custom multiplier values. 261 tests total, all passing.</li>
         </ul>

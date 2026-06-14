@@ -11,9 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-**In-app docs linked to GitHub Pages**
-- The browser UI Docs tab now links to the published GitHub Pages documentation site at `https://dprakash2101.github.io/overload/`.
-- A "Full documentation" link is shown in the Docs page header, and each topic (Getting Started, Patterns, Auth, etc.) has a "Read full documentation" link at the bottom pointing to the corresponding page.
+**In-app Docs tab embeds GitHub Pages**
+- The browser UI Docs tab now embeds the full published documentation site (`https://dprakash2101.github.io/overload/`) directly in a full-height iframe.
+- GitHub Pages own sidebar and navigation are used — no duplicate navigation in the app.
 
 **Configurable Phase 2 multiplier for rate limit tests**
 - New `rate_limit_exceed_multiplier` config field (default: 2) controls how many times the stated cap to send in Phase 2 of the rate limit test. Supports 2×–10×.
