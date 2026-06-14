@@ -20,7 +20,7 @@
     <a href="index.html" class="top-nav__logo">
       <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14" stroke="url(#grd)" stroke-width="2.5"/><path d="M10 20L16 8l6 12" stroke="url(#grd)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="grd" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#818cf8"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs></svg>
       Overload
-      <span class="top-nav__badge">v0.3.1</span>
+      <span class="top-nav__badge">v0.3.2</span>
     </a>
     <div class="top-nav__links">
       <a href="index.html" class="top-nav__link">Home</a>
@@ -75,6 +75,16 @@
     <main class="content">
       <h1>Changelog</h1>
       <p class="subtitle">All notable changes to this project will be documented in this file.</p>
+
+      <div class="card">
+        <h2 class="card__title">v0.3.2 — Embedded Docs &amp; Rate Limit Multiplier</h2>
+        <p class="card__desc"><strong>Date:</strong> 2026-06-14</p>
+        <ul>
+          <li><strong>In-App Docs Embeds GitHub Pages:</strong> The browser UI Docs tab now loads the full published documentation site (<code>https://dprakash2101.github.io/overload/</code>) directly in a full-height iframe — complete with the site's own sidebar and navigation. No duplicate navigation in the app.</li>
+          <li><strong>Configurable Phase 2 Multiplier:</strong> Rate limit tests now support a configurable <code>rate_limit_exceed_multiplier</code> (2×–10×) for Phase 2 instead of the hardcoded 2×. Exposed via browser UI slider, CLI <code>--exceed-multiplier</code> flag, MCP server parameter, and config file.</li>
+          <li><strong>Tests:</strong> 4 new tests for custom multiplier values. 261 tests total, all passing.</li>
+        </ul>
+      </div>
 
       <div class="card">
         <h2 class="card__title">v0.3.1 — Security Patch</h2>
@@ -154,7 +164,7 @@
 
       <!-- Footer -->
       <footer class="footer">
-        <p>Overload v0.3.1 · MIT License · Built by <a href="https://github.com/dprakash2101" target="_blank" rel="noopener">Devi Prakash</a></p>
+        <p>Overload v0.3.2 · MIT License · Built by <a href="https://github.com/dprakash2101" target="_blank" rel="noopener">Devi Prakash</a></p>
         <p style="margin-top:8px">
           <a href="https://github.com/dprakash2101/overload" target="_blank" rel="noopener">GitHub</a> ·
           <a href="https://pypi.org/project/overload-cli/" target="_blank" rel="noopener">PyPI</a> ·

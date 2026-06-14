@@ -23,7 +23,6 @@ ProgressCallback = Callable[[RunProgress], Coroutine[Any, Any, None]]
 
 
 _COOLDOWN_SECONDS = 15
-_EXCEED_MULTIPLIER = 2
 _PHASE_DURATION = 60.0
 
 
@@ -134,12 +133,13 @@ async def run_rate_limit_test(
     on_progress: ProgressCallback | None = None,
 ) -> tuple[list[RequestResult], list[dict]]:
     cap_rpm = config.rate_limit_cap
+    exceed_multiplier = config.rate_limit_exceed_multiplier
     concurrency = config.concurrency
     sem = asyncio.Semaphore(concurrency)
     all_results: list[RequestResult] = []
     request_idx = 0
     start_time = time.monotonic()
-    exceed_count = cap_rpm * _EXCEED_MULTIPLIER
+    exceed_count = cap_rpm * exceed_multiplier
     total_requests = cap_rpm + exceed_count
 
     logger.info("Rate Limit Test: cap=%d req/min, concurrency=%d", cap_rpm, concurrency)
@@ -249,7 +249,7 @@ async def run_rate_limit_test(
         message = (
             f"Rate limiting is NOT working. "
             f"Sent {p2_total} requests at {exceed_count} req/min "
-            f"(2× your {cap_rpm} req/min cap) and none were throttled."
+            f"({exceed_multiplier}× your {cap_rpm} req/min cap) and none were throttled."
         )
 
     logger.info("Verdict: %s — %s", verdict, message)

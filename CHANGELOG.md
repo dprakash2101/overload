@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.3.2] — 2026-06-14
+
+### Added
+
+**In-app Docs tab embeds GitHub Pages**
+- The browser UI Docs tab now embeds the full published documentation site (`https://dprakash2101.github.io/overload/`) directly in a full-height iframe.
+- GitHub Pages own sidebar and navigation are used — no duplicate navigation in the app.
+
+**Configurable Phase 2 multiplier for rate limit tests**
+- New `rate_limit_exceed_multiplier` config field (default: 2) controls how many times the stated cap to send in Phase 2 of the rate limit test. Supports 2×–10×.
+- **Browser UI:** New "Phase 2 multiplier" slider in the ratelimit pattern config panel.
+- **CLI:** New `--exceed-multiplier` flag (e.g., `overload run --pattern ratelimit --rps 60 --exceed-multiplier 3`).
+- **MCP server:** New `rate_limit_exceed_multiplier` parameter on `run_load_test`.
+- **Config file:** Supports `rate_limit_exceed_multiplier` key in `overload.config.yaml`.
+- Removed hardcoded `_EXCEED_MULTIPLIER = 2` constant from the rate limiter engine.
+
+### Tests
+
+- 4 new tests in `tests/test_rate_limiter.py` covering custom multiplier values for phase RPM, labels, and result counts.
+- 261 tests total, all passing.
+
+---
+
 ## [0.3.1] — 2026-06-09
 
 ### Security
@@ -219,6 +242,7 @@ First public release.
 - 124 unit tests across all layers (assertions, auth, collection parser, variables, HTTP client, models, report, API)
 - GitHub Actions CI matrix: Python 3.10 · 3.11 · 3.12 · 3.13
 
+[0.3.2]: https://github.com/dprakash2101/overload/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/dprakash2101/overload/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/dprakash2101/overload/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/dprakash2101/overload/compare/v0.2.0...v0.2.1

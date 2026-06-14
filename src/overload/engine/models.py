@@ -104,6 +104,7 @@ class PatternConfig:
 
     # Rate limit test (req/min)
     rate_limit_cap: int = 60
+    rate_limit_exceed_multiplier: int = 2
 
     # Sequential runner
     iterations: int = 1

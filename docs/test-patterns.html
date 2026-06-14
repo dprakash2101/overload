@@ -20,7 +20,7 @@
     <a href="index.html" class="top-nav__logo">
       <svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="14" stroke="url(#grd)" stroke-width="2.5"/><path d="M10 20L16 8l6 12" stroke="url(#grd)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><defs><linearGradient id="grd" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#818cf8"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs></svg>
       Overload
-      <span class="top-nav__badge">v0.3.1</span>
+      <span class="top-nav__badge">v0.3.2</span>
     </a>
     <div class="top-nav__links">
       <a href="index.html" class="top-nav__link">Home</a>
@@ -262,7 +262,7 @@
       <ol>
         <li><strong>Phase 1 — Under Threshold:</strong> Sends exactly <code>rate_limit_cap</code> requests over 60 seconds (at the stated limit). No 429s should appear here.</li>
         <li><strong>Cooldown:</strong> Waits 15 seconds for the rate limiter's sliding window to reset.</li>
-        <li><strong>Phase 2 — Exceeding Threshold:</strong> Sends <code>2 × rate_limit_cap</code> requests over 60 seconds. 429s should appear here if the limiter is working.</li>
+        <li><strong>Phase 2 — Exceeding Threshold:</strong> Sends <code>multiplier × rate_limit_cap</code> requests over 60 seconds (default 2×, configurable 2×–10× via <code>rate_limit_exceed_multiplier</code>). 429s should appear here if the limiter is working.</li>
       </ol>
       <p><strong>Verdict — one of three outcomes:</strong></p>
       <ul>
@@ -279,10 +279,15 @@
           </thead>
           <tbody>
             <tr><td><code>rate_limit_cap</code></td><td>60</td><td>The stated rate limit of the API in <strong>req/min</strong>.</td></tr>
+            <tr><td><code>rate_limit_exceed_multiplier</code></td><td>2</td><td>How many times the cap to send in Phase 2 (2 = 2×, 3 = 3×, up to 10×).</td></tr>
           </tbody>
         </table>
       </div>
-      <pre data-lang="bash"><code>overload run --collection api.json --pattern ratelimit</code></pre>
+      <pre data-lang="bash"><code># Default (2× in Phase 2)
+overload run --collection api.json --pattern ratelimit
+
+# Send 4× the rate limit in Phase 2
+overload run --collection api.json --pattern ratelimit --rps 60 --exceed-multiplier 4</code></pre>
 
       <!-- SEQUENTIAL -->
       <h2 id="sequential">10. Sequential</h2>
@@ -305,7 +310,7 @@
 
       <!-- Footer -->
       <footer class="footer">
-        <p>Overload v0.3.1 · MIT License · Built by <a href="https://github.com/dprakash2101" target="_blank" rel="noopener">Devi Prakash</a></p>
+        <p>Overload v0.3.2 · MIT License · Built by <a href="https://github.com/dprakash2101" target="_blank" rel="noopener">Devi Prakash</a></p>
         <p style="margin-top:8px">
           <a href="https://github.com/dprakash2101/overload" target="_blank" rel="noopener">GitHub</a> ·
           <a href="https://pypi.org/project/overload-cli/" target="_blank" rel="noopener">PyPI</a> ·

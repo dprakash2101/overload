@@ -90,6 +90,7 @@ async def run_load_test(
     selected_requests: list[int] | None = None,
     output_dir: str = "reports",
     assertions: list[str] | None = None,
+    rate_limit_exceed_multiplier: int = 2,
 ) -> dict[str, Any]:
     """
     Start a load test and return a run_id immediately (non-blocking).
@@ -109,6 +110,7 @@ async def run_load_test(
         selected_requests: Optional list of 0-based request indices to run (omit = run all).
         output_dir: Directory to write the HTML report (default: reports/).
         assertions: Optional threshold expressions, e.g. ["p95_latency_ms<500", "error_rate_pct<5"].
+        rate_limit_exceed_multiplier: For ratelimit pattern — how many times the cap to send in Phase 2 (2=2×, 3=3×, default 2).
 
     Guardrails: concurrency is capped at 200, total_requests at 10 000.
     """
@@ -182,6 +184,7 @@ async def run_load_test(
         ramp_end_rps=target_rps,
         spike_rps=target_rps,
         rate_limit_cap=target_rps,
+        rate_limit_exceed_multiplier=rate_limit_exceed_multiplier,
     )
 
     run_id = await _svc.start_run(
