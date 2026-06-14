@@ -83,18 +83,23 @@
       </ul>
 
       <h2 id="install">Installation</h2>
-      
-      <h3>Option 1: Standard Install (via pip)</h3>
-      <pre data-lang="bash"><code>pip install overload-cli</code></pre>
 
-      <h3>Option 2: Development Install (from source)</h3>
+      <pre data-lang="bash"><code># Core tool
+pip install overload-cli
+
+# Add MCP server support (optional — only needed for Claude Code / Codex CLI / Copilot)
+pip install "overload-cli[mcp]"</code></pre>
+
+      <p><code>overload-cli[mcp]</code> is the same package — <code>[mcp]</code> is an optional add-on that installs <a href="https://github.com/jlowin/fastmcp" target="_blank" rel="noopener">FastMCP</a> so you can run <code>overload mcp</code>. Most users only need the first command.</p>
+
+      <h3>Development Install (from source)</h3>
       <pre data-lang="bash"><code>git clone https://github.com/dprakash2101/overload
 cd overload
 pip install -e ".[dev]"</code></pre>
 
-      <p>Verify that the installation was successful:</p>
+      <p>Verify the installation:</p>
       <pre data-lang="bash"><code>overload --version</code></pre>
-      <p>You should see: <code>overload 0.2.1</code></p>
+      <p>You should see: <code>overload 0.3.2</code></p>
 
       <h2 id="first-test">Your First Test</h2>
 
