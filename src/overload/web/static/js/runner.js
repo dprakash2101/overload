@@ -82,7 +82,8 @@ window.RunnerPage = (function() {
       { key: 'error_threshold_pct', label: 'Error threshold', type: 'range', min: 1, max: 50, value: 10, unit: '%', tip: 'Error rate above this = degradation detected.' }
     ],
     ratelimit: [
-      { key: 'rate_limit_cap', label: 'Expected rate limit', type: 'range', min: 1, max: 1000, value: 60, unit: 'req/min', tip: 'Your API\'s stated rate limit in requests per minute.' }
+      { key: 'rate_limit_cap', label: 'Expected rate limit', type: 'range', min: 1, max: 1000, value: 60, unit: 'req/min', tip: 'Your API\'s stated rate limit in requests per minute.' },
+      { key: 'rate_limit_exceed_multiplier', label: 'Phase 2 multiplier', type: 'range', min: 2, max: 10, value: 2, unit: '×', tip: 'How many times the rate limit to send in Phase 2 (e.g. 2× = double, 3× = triple).' }
     ],
     sequential: [
       { key: 'iterations', label: 'Iterations', type: 'range', min: 1, max: 100, value: 1, tip: 'Times to run through the full collection.' },

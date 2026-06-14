@@ -57,6 +57,10 @@ def main() -> None:
     )
     run_parser.add_argument("--junit", metavar="PATH", help="Write JUnit XML report to PATH")
     run_parser.add_argument("--open-report", action="store_true", help="Open HTML report in browser after run")
+    run_parser.add_argument(
+        "--exceed-multiplier", type=int, default=2,
+        help="Phase 2 multiplier for ratelimit pattern (2=2×, 3=3×, etc., default: 2)",
+    )
     run_parser.add_argument("--config", metavar="PATH", help="Path to overload.config.yaml")
 
     # Sequential command
@@ -214,6 +218,7 @@ async def _run_test(args: argparse.Namespace) -> None:
     rps = _cfg(args.rps, "target_rps", 50, int)
     duration = _cfg(args.duration, "hold_duration_seconds", 300, int)
     requests = _cfg(args.requests, "total_requests", 200, int)
+    exceed_multiplier = _cfg(args.exceed_multiplier, "rate_limit_exceed_multiplier", 2, int)
 
     config = PatternConfig(
         concurrency=concurrency,
@@ -228,6 +233,7 @@ async def _run_test(args: argparse.Namespace) -> None:
         start_rps=10,
         spike_rps=rps,
         rate_limit_cap=rps,
+        rate_limit_exceed_multiplier=exceed_multiplier,
     )
 
     if args.stages:

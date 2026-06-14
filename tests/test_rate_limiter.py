@@ -320,6 +320,23 @@ class TestRateLimitPhaseData:
     @patch("overload.engine.rate_limiter._PHASE_DURATION", 0.05)
     @patch("overload.engine.rate_limiter._COOLDOWN_SECONDS", 0)
     @patch("overload.engine.rate_limiter._fire_one", new_callable=AsyncMock)
+    async def test_exceed_phase_rpm_with_custom_multiplier(self, mock_fire: AsyncMock) -> None:
+        mock_fire.return_value = _result(200)
+        cancel = asyncio.Event()
+        config = PatternConfig(rate_limit_cap=4, concurrency=10, rate_limit_exceed_multiplier=3)
+
+        _, phase_data = await run_rate_limit_test(
+            AsyncMock(), [_request()], VariableContext(), config,
+            "run-6b", cancel,
+        )
+        exceed = phase_data[1]
+        assert exceed["rpm"] == 12
+        assert exceed["total"] == 12
+
+    @pytest.mark.asyncio
+    @patch("overload.engine.rate_limiter._PHASE_DURATION", 0.05)
+    @patch("overload.engine.rate_limiter._COOLDOWN_SECONDS", 0)
+    @patch("overload.engine.rate_limiter._fire_one", new_callable=AsyncMock)
     async def test_phase_labels(self, mock_fire: AsyncMock) -> None:
         mock_fire.return_value = _result(200)
         cancel = asyncio.Event()
@@ -336,6 +353,22 @@ class TestRateLimitPhaseData:
     @patch("overload.engine.rate_limiter._PHASE_DURATION", 0.05)
     @patch("overload.engine.rate_limiter._COOLDOWN_SECONDS", 0)
     @patch("overload.engine.rate_limiter._fire_one", new_callable=AsyncMock)
+    async def test_phase_labels_with_custom_multiplier(self, mock_fire: AsyncMock) -> None:
+        mock_fire.return_value = _result(200)
+        cancel = asyncio.Event()
+        config = PatternConfig(rate_limit_cap=10, concurrency=10, rate_limit_exceed_multiplier=4)
+
+        _, phase_data = await run_rate_limit_test(
+            AsyncMock(), [_request()], VariableContext(), config,
+            "run-7b", cancel,
+        )
+        assert "10 req/min" in phase_data[0]["label"]
+        assert "40 req/min" in phase_data[1]["label"]
+
+    @pytest.mark.asyncio
+    @patch("overload.engine.rate_limiter._PHASE_DURATION", 0.05)
+    @patch("overload.engine.rate_limiter._COOLDOWN_SECONDS", 0)
+    @patch("overload.engine.rate_limiter._fire_one", new_callable=AsyncMock)
     async def test_all_results_collected(self, mock_fire: AsyncMock) -> None:
         mock_fire.return_value = _result(200)
         cancel = asyncio.Event()
@@ -347,6 +380,22 @@ class TestRateLimitPhaseData:
             "run-8", cancel,
         )
         assert len(results) == cap + cap * 2
+
+    @pytest.mark.asyncio
+    @patch("overload.engine.rate_limiter._PHASE_DURATION", 0.05)
+    @patch("overload.engine.rate_limiter._COOLDOWN_SECONDS", 0)
+    @patch("overload.engine.rate_limiter._fire_one", new_callable=AsyncMock)
+    async def test_all_results_collected_with_custom_multiplier(self, mock_fire: AsyncMock) -> None:
+        mock_fire.return_value = _result(200)
+        cancel = asyncio.Event()
+        cap = 3
+        config = PatternConfig(rate_limit_cap=cap, concurrency=10, rate_limit_exceed_multiplier=4)
+
+        results, _ = await run_rate_limit_test(
+            AsyncMock(), [_request()], VariableContext(), config,
+            "run-8b", cancel,
+        )
+        assert len(results) == cap + cap * 4
 
 
 # ---------------------------------------------------------------------------
@@ -601,11 +650,12 @@ class TestRateLimitCumulativeTotal:
     @patch("overload.engine.rate_limiter._COOLDOWN_SECONDS", 0)
     @patch("overload.engine.rate_limiter._fire_one", new_callable=AsyncMock)
     async def test_total_requests_is_cumulative(self, mock_fire: AsyncMock) -> None:
-        """total_requests in every progress message must equal cap + 2*cap, not reset per phase."""
+        """total_requests in every progress message must equal cap + multiplier*cap."""
         mock_fire.return_value = _result(200)
         cancel = asyncio.Event()
         cap = 4
-        config = PatternConfig(rate_limit_cap=cap, concurrency=10)
+        multiplier = 3
+        config = PatternConfig(rate_limit_cap=cap, concurrency=10, rate_limit_exceed_multiplier=multiplier)
         totals: list[int] = []
 
         async def on_progress(p: RunProgress) -> None:
@@ -616,7 +666,7 @@ class TestRateLimitCumulativeTotal:
             "run-cum-1", cancel, on_progress,
         )
 
-        expected_total = cap + cap * 2
+        expected_total = cap + cap * multiplier
         assert all(t == expected_total for t in totals), (
             f"total_requests should always be {expected_total}, got: {set(totals)}"
         )

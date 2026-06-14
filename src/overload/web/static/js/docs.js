@@ -148,10 +148,23 @@ window.DocsPage = (function() {
       '<p>Clicking Stop during a run still generates a partial report from whatever data was collected up to that point.</p>'
   };
 
+  var DOCS_BASE_URL = 'https://dprakash2101.github.io/overload/';
+
+  var TOPIC_DOC_LINKS = {
+    'getting-started': 'getting-started.html',
+    'collections': 'collections.html',
+    'csv-data': 'collections.html',
+    'auth': 'authentication.html',
+    'patterns': 'test-patterns.html',
+    'assertions': 'assertions.html',
+    'cicd': 'ci-cd.html',
+    'reports': 'reports.html'
+  };
+
   function render(container) {
     container.innerHTML =
       '<h1 class="page-title">Documentation</h1>' +
-      '<p class="page-desc">Help and reference for Overload</p>' +
+      '<p class="page-desc">Help and reference for Overload &mdash; <a href="' + DOCS_BASE_URL + '" target="_blank" rel="noopener" style="color:var(--link,#1d5fa8)">Full documentation &rarr;</a></p>' +
       '<div style="display:flex;gap:16px;align-items:flex-start">' +
         '<div id="docsSidebar" style="min-width:160px;max-width:180px;flex-shrink:0">' +
           '<div class="card" style="padding:8px">' +
@@ -183,7 +196,13 @@ window.DocsPage = (function() {
     currentTopic = id;
     var el = document.getElementById('docsContent');
     if (el) {
-      el.innerHTML = '<div style="padding:4px 8px">' + CONTENT[id] + '</div>';
+      var docLink = TOPIC_DOC_LINKS[id];
+      var linkHtml = docLink
+        ? '<p style="margin-top:16px;padding-top:12px;border-top:1px solid var(--border,#e0e0e0)">' +
+          '<a href="' + DOCS_BASE_URL + docLink + '" target="_blank" rel="noopener" style="color:var(--link,#1d5fa8)">' +
+          'Read full documentation &rarr;</a></p>'
+        : '';
+      el.innerHTML = '<div style="padding:4px 8px">' + CONTENT[id] + linkHtml + '</div>';
     }
     document.querySelectorAll('.doc-topic').forEach(function(t) {
       t.style.background = t.dataset.topic === id ? 'var(--sel,#e8ecff)' : '';
